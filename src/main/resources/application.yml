@@ -1,0 +1,111 @@
+spring:
+  application:
+    name: fileadapter
+  main:
+    web-application-type: none
+    banner-mode: off
+
+ingestion:
+  work-directory: ${FILEADAPTER_WORK_DIR:./var}
+  input-directory: ${FILEADAPTER_INPUT_DIR:./var/incoming}
+  mode: ${FILEADAPTER_MODE:PREVIEW}
+  poll-enabled: true
+  poll-interval: 5s
+  minimum-age: 2s
+  ready-suffix: .ready
+
+  delivery:
+    endpoint: ${UPSERT_URL:http://localhost:8081/employees/upsert}
+    connect-timeout: 5s
+    read-timeout: 30s
+    max-attempts: 3
+    retry-delay: 1s
+    # Enable ONLY after the service guarantees idempotency for this header.
+    replay-safe: false
+    idempotency-header: Idempotency-Key
+    success-statuses: [200, 201, 204]
+
+  profiles:
+    - id: enrollment-csv-v1
+      filename-pattern: "enrollment*.csv"
+      layout:
+        format: DELIMITED
+        charset: UTF-8
+        delimiter: ","
+        header-mode: FIRST_RECORD
+        fields:
+          employeeId:
+            column: employee_id
+            aliases: [employee_number, emp_id]
+          firstName:
+            column: first_name
+          lastName:
+            column: last_name
+          email:
+            column: email_address
+            aliases: [email]
+          city:
+            column: city
+          state:
+            column: state
+          planCode:
+            column: plan_code
+          effectiveDate:
+            column: effective_date
+
+      mappings:
+        - source: employeeId
+          target: employeeId
+          required: true
+          transforms: [trim]
+        - source: firstName
+          target: person.firstName
+          required: true
+          transforms: [trim]
+        - source: lastName
+          target: person.lastName
+          required: true
+          transforms: [trim]
+        - source: email
+          target: person.contact.email
+          blank-policy: OMIT
+          transforms: [trim]
+        - source: city
+          target: person.address.city
+          transforms: [trim]
+        - source: state
+          target: person.address.state
+          transforms: [trim, uppercase]
+        - source: planCode
+          target: coverage.planCode
+          required: true
+          transforms: [trim]
+        - source: effectiveDate
+          target: coverage.effectiveDate
+          required: true
+          transforms: [trim, iso-date]
+
+      contract:
+        - path: employeeId
+          type: STRING
+          required: true
+        - path: person
+          type: OBJECT
+          required: true
+        - path: person.firstName
+          type: STRING
+          required: true
+        - path: person.lastName
+          type: STRING
+          required: true
+        - path: person.contact.email
+          type: STRING
+        - path: coverage.planCode
+          type: STRING
+          required: true
+        - path: coverage.effectiveDate
+          type: STRING
+          required: true
+
+upsert:
+  bearer-token: ${UPSERT_BEARER_TOKEN:}
