@@ -4,6 +4,10 @@ A Spring Boot / Gradle worker that reads files from a mounted LAN directory, map
 
 Java 17 · Spring Boot 3.5.16 · Gradle Wrapper 8.14.3 · Jackson · Apache Commons CSV · local H2 ledger.
 
+## Developer walkthrough
+
+The [PowerPoint and presentation guide](docs/presentations/README.md) walk through the code, all supported formats, configurable mappings, previews, HTTP delivery, recovery, and demo steps.
+
 ## Run the working CSV example
 
 Use Java 17 or later to launch Gradle. The build uses JDK 17 for compilation and tests; if that JDK is missing, Gradle downloads it automatically through the Foojay toolchain resolver. The first build needs internet access. This does not change your system Java or `JAVA_HOME`.
