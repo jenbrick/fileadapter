@@ -6,7 +6,9 @@ Java 17 · Spring Boot 3.5.16 · Gradle Wrapper 8.14.3 · Jackson · Apache Comm
 
 ## Run the working CSV example
 
-Install JDK 17, then:
+Use Java 17 or later to launch Gradle. The build uses JDK 17 for compilation and tests; if that JDK is missing, Gradle downloads it automatically through the Foojay toolchain resolver. The first build needs internet access. This does not change your system Java or `JAVA_HOME`.
+
+Then:
 
 ```bash
 ./gradlew test bootJar
@@ -14,6 +16,18 @@ java -jar build/libs/fileadapter-0.1.0.jar --ingestion.file=examples/enrollment.
 ```
 
 On Windows, use `gradlew.bat test bootJar`. The Java command is the same.
+
+In Git Bash on Windows, use `./gradlew test bootJar`.
+
+If an older checkout reports `Cannot find a Java installation ... languageVersion=17` and `Toolchain download repositories have not been configured`, pull the fix and restart Gradle:
+
+```bash
+git pull --ff-only
+./gradlew --stop
+./gradlew test bootJar
+```
+
+If downloads are blocked by your network, install a JDK 17 manually, set `JAVA_HOME` to its installation directory (not its `bin` directory), and restart Git Bash. `java -version`, `javac -version`, and `./gradlew -q javaToolchains` help check the detected installations. The toolchain download does not provide the initial Java runtime needed to launch Gradle.
 
 The example generates two nested employee requests. Inspect `var/preview/<run-id>/requests.jsonl` and compare them with `examples/expected-requests.jsonl`. Each line is a separate JSON request object. No HTTP requests are made in preview mode. A successful one-shot run exits with code 0; a failed or paused run exits with code 1. The source example is copied, not removed.
 
