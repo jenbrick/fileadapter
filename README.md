@@ -21,7 +21,7 @@ See the [consent guide](docs/consent.md) for all formats, full field disposition
 
 ## Developer walkthrough
 
-The [PowerPoint and presentation guide](docs/presentations/README.md) walk through the code, all supported formats, configurable mappings, previews, HTTP delivery, recovery, and demo steps.
+Start with the [Markdown developer walkthrough](docs/developer-walkthrough.md) for the team code tour, architecture diagrams, complete array request, Git Bash demos, recovery behavior and integration decisions. It is the primary walkthrough maintained with the code. The [PowerPoint](docs/presentations/README.md) remains a presentation snapshot.
 
 ## Run the working CSV example
 

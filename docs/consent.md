@@ -1,5 +1,7 @@
 # CMS Interop consent ingestion
 
+For the team code tour and runnable demonstrations, start with the [developer walkthrough](developer-walkthrough.md).
+
 This is the implemented consent POC based on the supplied file fields and sample upsert objects. It does not claim to implement a published CMS file specification. The company's member lookup protocol and final consent API schema still need confirmation.
 
 ## Quick start in Git Bash

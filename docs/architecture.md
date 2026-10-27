@@ -1,5 +1,7 @@
 # Implemented architecture
 
+For the team code tour and runnable demonstrations, start with the [developer walkthrough](developer-walkthrough.md).
+
 ## CMS consent extension
 
 The [consent workflow](consent.md) adds member enrichment and one array request per member with populated preferences after normalization. Generic employee profiles retain configurable mapping and validation. Consent rules live in the immutable profile snapshot; resolved member plans live in H2. Delivery never looks members up again after READY. Request numbers identify POSTs; source record numbers identify member rows. One acknowledgement and retry identity cover the whole member array. A single POST does not establish service-side transaction atomicity. PREVIEW suppresses consent upserts but may perform read-only HTTP lookup; the explicit consent-demo profile uses synthetic fixtures instead.
