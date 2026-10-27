@@ -73,8 +73,16 @@ public class PreviewWriter {
                 generator.writeStartObject();
                 generator.writeNumberField("requestNumber", request.number());
                 generator.writeNumberField("sourceRecordNumber", request.sourceRecord());
-                var target = json.readTree(request.payload()).get("consentTarget");
-                if (target != null) generator.writeStringField("consentTarget", target.asText());
+                var body = json.readTree(request.payload());
+                if (body.isArray()) {
+                    generator.writeArrayFieldStart("consentTargets");
+                    for (var entry : body) generator.writeString(entry.path("consentTarget").asText());
+                    generator.writeEndArray();
+                    generator.writeNumberField("consentEntryCount", body.size());
+                } else {
+                    var target = body.get("consentTarget");
+                    if (target != null) generator.writeStringField("consentTarget", target.asText());
+                }
                 generator.writeEndObject();
                 after = request.number();
             }
@@ -97,6 +105,12 @@ public class PreviewWriter {
         source.put("runId", run.id());
         source.put("contentSha256", run.contentHash());
         source.put("requestCount", ledger.count(run.id()));
+        if (snapshot.profile().consent() != null) {
+            source.put("engineVersion", snapshot.engineVersion());
+            source.put("consentRuleVersion", snapshot.profile().consent().version());
+            source.put("requestBodyShape", snapshot.engineVersion() >= 3
+                    ? "MEMBER_CONSENT_ARRAY" : "LEGACY_CONSENT_OBJECT");
+        }
         if (layout.format() == Profile.Format.DELIMITED) {
             source.put("delimiter", layout.delimiter());
             source.put("headerMode", layout.headerMode().name());

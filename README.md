@@ -6,7 +6,7 @@ Java 17 · Spring Boot 3.5.16 · Gradle Wrapper 8.14.3 · Jackson · Apache Comm
 
 ## CMS Interop consent workflow
 
-The active consent implementation accepts the 30 supplied member/consent/payer fields across CSV, headerless CSV, pipe, fixed width, XML and JSON. One member row produces zero, one or two requests: provider clinical (`PCDS`) and payer-to-payer (`P2PDS`, including coverage). Member enrichment resolves internal contract, PIN, member GUID, manager identity and existing consent GUIDs before any upsert.
+The active consent implementation accepts the 30 supplied member/consent/payer fields across CSV, headerless CSV, pipe, fixed width, XML and JSON. Each member row produces one array request containing provider clinical (`PCDS`), payer-to-payer (`P2PDS`, with coverage when supplied), or both. A no-change row produces no request. There is at most one entry per target in the array. Member enrichment resolves internal contract, PIN, member GUID, manager identity and existing consent GUIDs before any upsert.
 
 ```bash
 ./gradlew test bootJar
@@ -15,7 +15,7 @@ java -jar build/libs/fileadapter-0.1.0.jar \
   --ingestion.file=examples/consent/consent.csv
 ```
 
-This uses synthetic fixture lookup and PREVIEW mode. Open `var-consent-demo/preview/<run-id>/consent.csv.preview.json` for the source-labelled six-request result, including each request's source row and consent target. No HTTP calls occur in this fixture demo. Normal consent previews use HTTP enrichment but send no consent upserts. LIVE requires HTTP enrichment and refuses fixture lookup.
+This uses synthetic fixture lookup and PREVIEW mode. Open `var-consent-demo/preview/<run-id>/consent.csv.preview.json` for the source-labelled four-request result containing six consent entries, including each request's source row and included consent targets. No HTTP calls occur in this fixture demo. Normal consent previews use HTTP enrichment but send no consent upserts. LIVE requires HTTP enrichment and refuses fixture lookup.
 
 See the [consent guide](docs/consent.md) for all formats, full field disposition, contract assumptions, enrichment API, local HTTP demos, recovery and integration decisions. The employee examples below remain supported as the generic configurable mapping example.
 
@@ -72,7 +72,7 @@ $env:UPSERT_BEARER_TOKEN = 'your-token'
 java -jar build/libs/fileadapter-0.1.0.jar --ingestion.file=examples/enrollment.csv --ingestion.mode=LIVE
 ```
 
-Employee profiles send one POST per data record. Consent profiles send one POST per populated consent target, with `Content-Type: application/json`. Jackson serializes an `ObjectNode`; the application does not manually concatenate JSON. The default acknowledged statuses are 200, 201, and 204. A 202 response is uncertain until your service's asynchronous completion contract is implemented or you explicitly configure it as an acknowledgement.
+Employee profiles send one POST per data record. Consent profiles send one POST per member row with populated preferences, using a JSON array body containing one or both consent entries, with `Content-Type: application/json`. Jackson serializes a `JsonNode`; the application does not manually concatenate JSON. The default acknowledged statuses are 200, 201, and 204. A 202 response is uncertain until your service's asynchronous completion contract is implemented or you explicitly configure it as an acknowledgement.
 
 Authentication currently supports an optional bearer token. Endpoint and request/response contracts are examples until your service details are supplied.
 
@@ -204,7 +204,7 @@ java -jar build/libs/fileadapter-0.1.0.jar --ingestion.resume=RUN_ID
 
 Acknowledged records are skipped. Resume uses the original endpoint, mapping, mode, and retry settings; the current bearer token is used so credentials can rotate. Unsafe uncertain deliveries remain paused, including explicit resume: reconcile them with the service before any deliberate replay. This version does not provide an operator reconciliation UI/command. Permanently rejected or invalid runs are not resumed; correct the input/configuration and submit a new run. Previously applied business records require the service's agreed upsert semantics.
 
-H2 is the durable ledger for this single-instance baseline. There are no cross-system transactions or exactly-once guarantees. Consent rows can fan out into independently tracked provider/payer requests. API batches, grouping multiple rows into aggregates, asynchronous acknowledgement tracking, distributed processing, and a full schema validator are future extensions.
+H2 is the durable ledger for this single-instance baseline. There are no cross-system transactions or exactly-once guarantees. Consent rows combine provider and payer entries in one array with one delivery identity per member row. API batches, grouping multiple rows into aggregates, asynchronous acknowledgement tracking, distributed processing, and a full schema validator are future extensions.
 
 ## Tests and architecture
 

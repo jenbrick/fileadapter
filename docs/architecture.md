@@ -2,7 +2,7 @@
 
 ## CMS consent extension
 
-The [consent workflow](consent.md) adds member enrichment and zero/one/two-request fan-out after normalization. Generic employee profiles retain configurable mapping and validation. Consent rules live in the immutable profile snapshot; resolved member plans live in H2. Delivery never looks members up again after READY. Request numbers identify POSTs; source record numbers identify member rows. Provider and payer requests acknowledge independently. PREVIEW suppresses consent upserts but may perform read-only HTTP lookup; the explicit consent-demo profile uses synthetic fixtures instead.
+The [consent workflow](consent.md) adds member enrichment and one array request per member with populated preferences after normalization. Generic employee profiles retain configurable mapping and validation. Consent rules live in the immutable profile snapshot; resolved member plans live in H2. Delivery never looks members up again after READY. Request numbers identify POSTs; source record numbers identify member rows. One acknowledgement and retry identity cover the whole member array. A single POST does not establish service-side transaction atomicity. PREVIEW suppresses consent upserts but may perform read-only HTTP lookup; the explicit consent-demo profile uses synthetic fixtures instead.
 
 Editable Mermaid source: [architecture.mmd](architecture.mmd).
 
@@ -42,7 +42,7 @@ flowchart TD
         MAP --> VALIDATE["Required paths, types, nullability"]
         KIND -->|Yes| CONSENT["Validate consent intents and coverage"]
         CONSENT --> LOOKUP["Resolve owner, manager and consent GUIDs"]
-        LOOKUP --> PLAN["Freeze zero, one or two requests per member in H2"]
+        LOOKUP --> PLAN["Freeze member consent entries and stage one array in H2"]
         PLAN --> REQUESTS
         VALIDATE --> REQUESTS[("Durably staged requests")]
         REQUESTS --> READY["Mark ready only after all records validate"]

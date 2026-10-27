@@ -57,17 +57,30 @@ if __name__ == '__main__':
         manager=owner if n!=3 else {'contract':'990000003','pin':'XYZ','contractMemberGuid':'SYN-GUARDIAN-3'}
         resolution={'owner':owner,'manager':manager,'providerConsentGuid':None,'payerConsentGuid':'SYN-CONSENT-20001' if n==1 else None}
         fixtures.append({'match':{k:row[k] for k in ['EXTERNAL_CONTRACT_ID','RELATIONSHIP_CODE','FIRST_NAME','LAST_NAME','DATE_OF_BIRTH']},'result':resolution})
+        entries=[]
         for target,pref,date,guid in [('PCDS','PROVIDER_CLINICAL_CONSENT_PREFERENCE','PROVIDER_CLINICAL_CONSENT_EFFECTIVE_DATE',resolution['providerConsentGuid']),('P2PDS','PAYER_CONSENT_PREFERENCE','PAYER_CONSENT_PREFERENCE_EFFECTIVE_DATE',resolution['payerConsentGuid'])]:
             if not row[pref]: continue
             req={'consentGuid':guid,'consentTarget':target,'consentStatus':row[pref], 'consentOwner':owner,
                 'effectiveDate':row[date],'effectiveEndDate':None,'transactionDetails':{'sourceSystem':'MDB','sourceDateTime':'2026-10-27T12:00:00Z','sourceTransactionIdentifier':'synthetic.demo','consentManager':manager}}
             if target=='P2PDS':
                 req['coverage']={k:row[v] or None for k,v in {'payerId':'PAYER_ID','otherPayerMemberId':'PAYER_POLICY_ID','groupNumber':'PAYER_GROUP_NUMBER','policyHolderFirstName':'PAYER_SUBSCRIBER_FIRST_NAME','policyHolderLastName':'PAYER_SUBSCRIBER_LAST_NAME','policyHolderMiddleName':'PAYER_SUBSCRIBER_MIDDLE_NAME','policyHolderGender':'PAYER_GENDER_CODE','policyHolderDateOfBirth':'PAYER_DATE_OF_BIRTH','relationshipToPolicyHolder':'RELATIONSHIP_CODE'}.items()}
-            expected.append(req)
-            origins.append({'requestNumber':len(expected),'sourceRecordNumber':n,'consentTarget':target})
+            entries.append(req)
+        if entries:
+            expected.append(entries)
+            origins.append({'requestNumber':len(expected),'sourceRecordNumber':n,
+                'consentTargets':[entry['consentTarget'] for entry in entries],'consentEntryCount':len(entries)})
     (OUT/'expected-requests.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in expected))
-    (OUT/'expected-provider-request.json').write_text(json.dumps(expected[0],indent=2)+'\n')
-    (OUT/'expected-payer-request.json').write_text(json.dumps(expected[1],indent=2)+'\n')
+    (OUT/'expected-provider-request.json').write_text(json.dumps([expected[0][0]],indent=2)+'\n')
+    (OUT/'expected-payer-request.json').write_text(json.dumps([expected[0][1]],indent=2)+'\n')
+    general=dict(ROWS[2])
+    for key in ['PAYER_ID','PAYER_POLICY_ID','PAYER_GROUP_NUMBER','PAYER_SUBSCRIBER_FIRST_NAME',
+                'PAYER_SUBSCRIBER_LAST_NAME','PAYER_SUBSCRIBER_MIDDLE_NAME','PAYER_GENDER_CODE','PAYER_DATE_OF_BIRTH']:
+        general[key]=''
+    (OUT/'consent-object-payer-general.json').write_text(json.dumps(general,indent=2)+'\n')
+    general_expected=dict(expected[2][0])
+    general_expected.pop('coverage')
+    (OUT/'expected-payer-general-request.json').write_text(json.dumps([general_expected],indent=2)+'\n')
+    (OUT/'expected-combined-request.json').write_text(json.dumps(expected[0],indent=2)+'\n')
     (OUT/'expected-request-details.json').write_text(json.dumps(origins,indent=2)+'\n')
     (OUT/'lookup-fixtures.json').write_text(json.dumps(fixtures,indent=2)+'\n')
     (OUT/'fixed-width-layout.json').write_text(json.dumps([{'name':c,'offset':sum(WIDTHS[:i]),'length':w} for i,(c,w) in enumerate(zip(COLUMNS,WIDTHS))],indent=2)+'\n')

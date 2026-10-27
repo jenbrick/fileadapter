@@ -2,31 +2,35 @@
   {
     "requestNumber": 1,
     "sourceRecordNumber": 1,
-    "consentTarget": "PCDS"
+    "consentTargets": [
+      "PCDS",
+      "P2PDS"
+    ],
+    "consentEntryCount": 2
   },
   {
     "requestNumber": 2,
-    "sourceRecordNumber": 1,
-    "consentTarget": "P2PDS"
+    "sourceRecordNumber": 2,
+    "consentTargets": [
+      "PCDS"
+    ],
+    "consentEntryCount": 1
   },
   {
     "requestNumber": 3,
-    "sourceRecordNumber": 2,
-    "consentTarget": "PCDS"
+    "sourceRecordNumber": 3,
+    "consentTargets": [
+      "P2PDS"
+    ],
+    "consentEntryCount": 1
   },
   {
     "requestNumber": 4,
-    "sourceRecordNumber": 3,
-    "consentTarget": "P2PDS"
-  },
-  {
-    "requestNumber": 5,
     "sourceRecordNumber": 4,
-    "consentTarget": "PCDS"
-  },
-  {
-    "requestNumber": 6,
-    "sourceRecordNumber": 4,
-    "consentTarget": "P2PDS"
+    "consentTargets": [
+      "PCDS",
+      "P2PDS"
+    ],
+    "consentEntryCount": 2
   }
 ]

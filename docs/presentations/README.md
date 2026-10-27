@@ -4,7 +4,7 @@
 
 A 31-slide walkthrough of the implemented CMS Interop consent POC. Allow about 45–60 minutes including the demos and contract discussion. Slides include presenter notes, editable tables/diagrams and links to source. This revision replaces the employee-focused walkthrough with the supplied member and consent use case. Generic employee examples remain supported in the application.
 
-The deck covers the consent implementation and 99 passing tests as of 27 October 2026. The lookup facade and unsettled output rules are labelled assumptions pending the company API contracts. See [the consent guide](../consent.md) for the complete 30-field disposition and runnable commands.
+The deck covers the consent implementation and 103 passing tests as of 27 October 2026. The lookup facade and unsettled output rules are labelled assumptions pending the company API contracts. See [the consent guide](../consent.md) for the complete 30-field disposition and runnable commands.
 
 ## Agenda
 
@@ -13,15 +13,15 @@ The deck covers the consent implementation and 99 passing tests as of 27 October
 | 1 | CMS Interop Consent |
 | 2 | Consent processing flow |
 | 3 | Source fields and request targets |
-| 4 | One member, independent consent intents |
+| 4 | One member array per populated row |
 | 5 | Adapter contract |
 | 6 | Supported file formats |
 | 7 | Consent profile |
-| 8 | Normalized member row |
+| 8 | One member, one array request |
 | 9 | Member enrichment boundary |
 | 10 | Lookup request and resolution |
-| 11 | Provider clinical request |
-| 12 | Payer-to-payer request |
+| 11 | Provider clinical entry |
+| 12 | Payer-to-payer entry |
 | 13 | Coverage object |
 | 14 | Transaction details |
 | 15 | Consent validation rules |
@@ -30,14 +30,14 @@ The deck covers the consent implementation and 99 passing tests as of 27 October
 | 18 | Run and request identity |
 | 19 | Previews with request origins |
 | 20 | HTTP delivery outcomes |
-| 21 | Partial success across consent targets |
+| 21 | Partial success across member requests |
 | 22 | Processing states and recovery |
 | 23 | Code responsibilities |
 | 24 | Configuration and Java changes |
 | 25 | Git Bash consent preview |
 | 26 | Multiple format demo |
 | 27 | Local HTTP lookup and delivery demo |
-| 28 | Partial-success recovery demo |
+| 28 | Whole-array recovery demo |
 | 29 | Validation and operational boundaries |
 | 30 | Contract decisions for the team |
 | 31 | Code tour and demo references |
@@ -53,15 +53,15 @@ java -jar build/libs/fileadapter-0.1.0.jar \
 cat var-consent-demo/preview/*/consent.csv.preview.json
 ```
 
-Five member rows produce six consent requests: provider and payer together, provider only, payer only, both granted, and a no-change row. Inspect the file/type metadata, body shapes, GUID insert/update behavior and `requestDetails` origins. The dependent member has a separately resolved manager. The demo profile uses synthetic fixtures and no HTTP calls. Normal consent PREVIEW can use HTTP member lookup, but never posts consent upserts.
+Five member rows produce four array requests containing six consent entries: provider and payer together, provider only, payer only, both granted, and a no-change row. Inspect the file/type metadata, body shapes, GUID insert/update behavior and `requestDetails` origins. The dependent member has a separately resolved manager. The demo profile uses synthetic fixtures and no HTTP calls. Normal consent PREVIEW can use HTTP member lookup, but never posts consent upserts.
 
-Repeat with fixed width, XML, headerless pipe, JSON array or JSON Lines using the [multi-format commands](../consent.md#every-input-format). The single-object JSON example produces two requests for one member. Python is optional for fixture previews.
+Repeat with fixed width, XML, headerless pipe, JSON array or JSON Lines using the [multi-format commands](../consent.md#every-input-format). The single-object JSON example produces one request containing two consent entries for one member. Python is optional for fixture previews.
 
 ## HTTP and recovery exercises
 
 Start `python scripts/mock_consent_services.py` in a separate terminal, then follow [the local HTTP demo](../consent.md#local-http-demo). It exercises the proposed lookup facade and consent POSTs through a loopback-only synthetic server. Omit the consent-demo profile for LIVE mode. The application refuses LIVE fixture lookup.
 
-The failure exercise uses `--fail-once-target P2PDS`, a fresh work directory, replay-safe delivery and a one-attempt budget. The provider succeeds, payer pauses, and resume skips the provider while reusing the payer body/key. Keep the same mock process running because its idempotency memory is temporary. Configure replay safety for a real service only after its owners guarantee it.
+The failure exercise uses `--fail-once-target P2PDS`, a fresh work directory, replay-safe delivery and a one-attempt budget. The first member array containing P2PDS pauses. Resume retries that whole array with the same body/key and then sends the other member arrays. Keep the same mock process running because its idempotency memory is temporary. Configure replay safety for a real service only after its owners guarantee it.
 
 A malformed or unresolved later member blocks every consent upsert from the file. The input may already have caused read-only lookups for earlier valid members. Automated tests cover this behavior and multiple error cases.
 

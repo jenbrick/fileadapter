@@ -33,7 +33,7 @@ flowchart TD
         MAP --> VALIDATE["Required paths, types, nullability"]
         KIND -->|Yes| CONSENT["Validate consent intents and coverage"]
         CONSENT --> LOOKUP["Resolve owner, manager and consent GUIDs"]
-        LOOKUP --> PLAN["Freeze zero, one or two requests per member in H2"]
+        LOOKUP --> PLAN["Freeze member consent entries and stage one array in H2"]
         PLAN --> REQUESTS
         VALIDATE --> REQUESTS[("Durably staged requests")]
         REQUESTS --> READY["Mark ready only after all records validate"]

@@ -55,25 +55,31 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, matches[0]) if len(matches)==1 else self.reply(409, {'error':'no unique match'})
             if self.path != '/consents/upsert':
                 return self.reply(404, {'error':'unknown route'})
-            target = body.get('consentTarget')
-            if target not in ('PCDS', 'P2PDS') or body.get('consentStatus') not in ('GRANT', 'RVOKE'):
-                return self.reply(400, {'error':'invalid consent'})
-            if (target=='P2PDS') != ('coverage' in body):
-                return self.reply(400, {'error':'coverage shape'})
+            if not isinstance(body, list) or not 1 <= len(body) <= 2:
+                return self.reply(400, {'error':'expected one member consent array'})
+            targets = [entry.get('consentTarget') for entry in body]
+            if len(set(targets)) != len(targets):
+                return self.reply(400, {'error':'duplicate consent target'})
+            for entry in body:
+                target = entry.get('consentTarget')
+                if target not in ('PCDS', 'P2PDS') or entry.get('consentStatus') not in ('GRANT', 'RVOKE'):
+                    return self.reply(400, {'error':'invalid consent'})
+                if target == 'PCDS' and 'coverage' in entry:
+                    return self.reply(400, {'error':'provider coverage shape'})
             key = self.headers.get('Idempotency-Key')
             if not key:
                 return self.reply(400, {'error':'missing key'})
             with LOCK:
                 if key in SEEN:
                     return self.reply(200 if SEEN[key]==body else 409, {'duplicate':True})
-                if target == ARGS.fail_once_target and target not in FAILED:
-                    FAILED.add(target)
+                if ARGS.fail_once_target in targets and ARGS.fail_once_target not in FAILED:
+                    FAILED.add(ARGS.fail_once_target)
                     return self.reply(503, {'error':'synthetic transient failure'})
                 SEEN[key] = body
                 ARGS.capture.parent.mkdir(parents=True, exist_ok=True)
                 with ARGS.capture.open('a', encoding='utf-8') as f:
                     f.write(json.dumps({'idempotencyKey':key,'request':body})+'\n')
-            print(f'Accepted synthetic {target} request', flush=True)
+            print(f'Accepted synthetic member request with {len(body)} consent entries', flush=True)
             self.reply(201, {'accepted':True})
         except (ValueError, TypeError, AttributeError):
             self.reply(400, {'error':'invalid JSON request'})

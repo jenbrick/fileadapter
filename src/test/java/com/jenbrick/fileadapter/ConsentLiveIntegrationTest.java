@@ -43,30 +43,65 @@ class ConsentLiveIntegrationTest {
     }
     @Autowired FileProcessor processor;
     @Autowired ProcessingLedger ledger;
+    @Autowired com.jenbrick.fileadapter.config.ProfileCatalog catalog;
+    @Autowired com.jenbrick.fileadapter.config.IngestionProperties properties;
+    @Autowired ObjectMapper objectMapper;
     @BeforeEach void reset(){BODIES.clear();KEYS.clear();STATUSES.clear();LOOKUPS.set(0);lookupStatus=200;}
     @AfterAll static void stop(){SERVER.stop(0);}
-    @Test void postsSeparateProviderAndPayerRequestsAfterEnrichment() throws Exception {
+    @Test void postsOneConsentArrayPerMemberAfterEnrichment() throws Exception {
         String id=processor.process(input("success"),"cms-consent-csv-v1",false);
         assertThat(ledger.get(id).status()).isEqualTo("COMPLETED");
         assertThat(LOOKUPS.get()).isEqualTo(4);
         var expected=Files.readAllLines(Path.of("examples/consent/expected-requests.jsonl"));
-        assertThat(BODIES).hasSize(6);
-        for(int i=0;i<6;i++) assertThat(BODIES.get(i)).isEqualTo(JSON.readTree(expected.get(i)));
+        assertThat(BODIES).hasSize(4);
+        for(int i=0;i<4;i++) assertThat(BODIES.get(i)).isEqualTo(JSON.readTree(expected.get(i)));
     }
-    @Test void recoverySkipsAcknowledgedTargetAndNeverRepeatsLookups() throws Exception {
+    @Test void recoverySkipsAcknowledgedMemberAndNeverRepeatsLookups() throws Exception {
         STATUSES.addAll(List.of(201,503));
         String id=processor.process(input("partial"),"cms-consent-csv-v1",false);
         assertThat(ledger.get(id).status()).isEqualTo("PAUSED");
         assertThat(BODIES).hasSize(2);
         var report=JSON.readTree(WORK.resolve("errors").resolve(id).resolve("error.json").toFile());
-        assertThat(report.path("sourceRecordNumber").longValue()).isEqualTo(1);
+        assertThat(report.path("sourceRecordNumber").longValue()).isEqualTo(2);
         assertThat(report.path("requestNumber").longValue()).isEqualTo(2);
         assertThat(processor.resume(id)).isTrue();
-        assertThat(BODIES).hasSize(7);
+        assertThat(BODIES).hasSize(5);
         assertThat(KEYS.get(0)).isEqualTo(id+":1");
         assertThat(KEYS.get(1)).isEqualTo(KEYS.get(2));
         assertThat(LOOKUPS.get()).isEqualTo(4);
         assertThat(BODIES.get(1)).isEqualTo(BODIES.get(2));
+    }
+    @Test void retriesWholeTwoEntryArrayWithOneStableKey() throws Exception {
+        STATUSES.add(503);
+        String id=processor.process(input("whole-array-retry"),"cms-consent-csv-v1",false);
+        assertThat(ledger.get(id).status()).isEqualTo("PAUSED");
+        assertThat(BODIES).hasSize(1);
+        assertThat(BODIES.get(0).isArray()).isTrue();
+        assertThat(BODIES.get(0)).hasSize(2);
+        assertThat(processor.resume(id)).isTrue();
+        assertThat(BODIES).hasSize(5);
+        assertThat(BODIES.get(0)).isEqualTo(BODIES.get(1));
+        assertThat(KEYS.get(0)).isEqualTo(KEYS.get(1));
+        assertThat(LOOKUPS.get()).isEqualTo(4);
+    }
+    @Test void version2PendingRunPausesBeforeAnyLegacyObjectCanBePosted() throws Exception {
+        String id="2".repeat(64);
+        Path source=input("legacy-v2");
+        byte[] bytes=Files.readAllBytes(source);
+        String hash=java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+        var snapshot=new com.jenbrick.fileadapter.processing.RunSnapshot(2,
+                catalog.resolve(source,"cms-consent-csv-v1"),
+                com.jenbrick.fileadapter.config.IngestionProperties.Mode.LIVE,properties.delivery());
+        ledger.create(id,source.getFileName().toString(),hash,objectMapper.writeValueAsString(snapshot));
+        Path dir=WORK.resolve("processing").resolve(id);Files.createDirectories(dir);
+        Files.copy(source,dir.resolve("input"));
+        Files.writeString(dir.resolve("snapshot.json"),objectMapper.writeValueAsString(snapshot));
+        processor.recover();
+        assertThat(ledger.get(id).status()).isEqualTo("PAUSED");
+        assertThat(BODIES).isEmpty();
+        assertThat(LOOKUPS.get()).isZero();
+        assertThat(processor.resume(id)).isFalse();
+        assertThat(BODIES).isEmpty();
     }
     @Test void lookupFailureBlocksEveryUpsert() throws Exception {
         lookupStatus=404;

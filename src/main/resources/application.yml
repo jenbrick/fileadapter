@@ -218,7 +218,7 @@ ingestion:
         header-mode: FIRST_RECORD
 
       consent: &consentRules
-        version: cms-consent-v1
+        version: cms-consent-v2
         provider-target: PCDS
         payer-target: P2PDS
         preferences: { GRANT: GRANT, RVOKE: RVOKE }

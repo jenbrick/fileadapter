@@ -44,7 +44,7 @@ Parser sources are under `src/main/java/com/jenbrick/fileadapter/source/`.
 
 ## Identify the source of a preview
 
-For `examples/enrollment.xml`, open `var/preview/<run-id>/enrollment.xml.preview.json`. The document has `previewVersion`, `mode`, a `source` object, and a `requests` array containing the actual mapped request bodies, and `requestDetails` associating each body with its source record number (and consent target for consent profiles). Existing preview files are backfilled only when missing.
+For `examples/enrollment.xml`, open `var/preview/<run-id>/enrollment.xml.preview.json`. The document has `previewVersion`, `mode`, a `source` object, and a `requests` array containing the actual mapped request bodies, and `requestDetails` associating each body with its source record number (and a consentTargets list for consent array profiles). Existing preview files are backfilled only when missing.
 
 The source object contains the original `fileName`, a readable `fileType` (CSV, PIPE_DELIMITED, TAB_DELIMITED, FIXED_WIDTH, XML, or JSON), the adapter `format`, `charset`, `profileId`, `runId`, `contentSha256`, and `requestCount`. Format-specific details identify headers/delimiters, fixed-width record length, XML record path, or JSON document mode.
 

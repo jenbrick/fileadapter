@@ -1,6 +1,6 @@
 # Extending FileAdapter
 
-## Consent enrichment and fan-out
+## Consent enrichment and array assembly
 
 The implemented consent path uses `ConsentRequestPlanner`, `MemberResolver` and `ConsentPlanStore` instead of generic one-record/one-request mapping. Replace the resolver to compose real company APIs/queries. Change `Profile.consent` for preference/relationship maps, targets, date pattern, source metadata and lookup settings. Change the planner when the approved API adds new structures. See [the consent guide](consent.md) for the proposed facade contract, unresolved assumptions and durable plan recovery. Preserve old snapshot behavior when changing business rules.
 
@@ -24,7 +24,7 @@ public class YamlFileAdapter implements FileFormatAdapter {
 
 The registry discovers beans automatically and rejects duplicate registrations. Add format-specific settings to `Profile.Layout` (or introduce format-specific layout records) once the actual feed is known. A single universal layout with dozens of speculative fields is deliberately avoided.
 
-Record numbers must be positive, unique, increasing within a file, and stable across repeated parses of the same input. They identify source rows. Sequential request numbers identify ledger delivery entries and idempotency keys, allowing a consent row to produce multiple requests. Keep parser resource ownership inside `read`; do not expose a lazy stream after closing its file reader.
+Record numbers must be positive, unique, increasing within a file, and stable across repeated parses of the same input. They identify source rows. Sequential request numbers identify ledger delivery entries and idempotency keys, allowing each populated consent row to produce one array request with up to two entries. Keep parser resource ownership inside `read`; do not expose a lazy stream after closing its file reader.
 
 The existing fixed-width adapter counts Unicode code points, with zero-based offsets. XML uses namespace-aware absolute record paths and rejects DTDs/entities and mixed content. JSON uses an explicit OBJECT, ARRAY, or LINES mode. Headerless delimited files use an explicit ordered `columns` list. These choices cannot be inferred reliably from a file extension.
 

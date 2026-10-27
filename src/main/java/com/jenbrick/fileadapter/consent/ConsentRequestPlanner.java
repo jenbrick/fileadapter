@@ -26,6 +26,11 @@ public class ConsentRequestPlanner {
     }
 
     public List<ObjectNode> plan(String runId, SourceRecord source, ConsentSettings settings, Mode mode) {
+        return plan(runId, source, settings, mode, 3);
+    }
+
+    public List<ObjectNode> plan(String runId, SourceRecord source, ConsentSettings settings, Mode mode,
+                                 int engineVersion) {
         settings.validate();
         if (mode == Mode.LIVE && settings.lookup().mode() == ConsentSettings.LookupMode.FIXTURE) {
             throw new IllegalArgumentException("LIVE consent requires HTTP member resolution");
@@ -37,7 +42,7 @@ public class ConsentRequestPlanner {
                 for (var request : json.readTree(saved)) result.add((ObjectNode) request);
                 return result;
             }
-            var result = assemble(source.payload(), settings);
+            var result = assemble(source.payload(), settings, engineVersion == 2);
             plans.save(runId, source.number(), json.writeValueAsString(result));
             return result;
         } catch (java.io.IOException e) {
@@ -46,6 +51,10 @@ public class ConsentRequestPlanner {
     }
 
     List<ObjectNode> assemble(JsonNode row, ConsentSettings settings) {
+        return assemble(row, settings, false);
+    }
+
+    private List<ObjectNode> assemble(JsonNode row, ConsentSettings settings, boolean legacyCoverageRequired) {
         // A missing preference column is a layout error. A present blank/null is an explicit no-op.
         for (String field : List.of("PROVIDER_CLINICAL_CONSENT_PREFERENCE", "PAYER_CONSENT_PREFERENCE")) {
             if (!row.has(field)) throw new IllegalArgumentException("Missing consent preference field");
@@ -57,7 +66,8 @@ public class ConsentRequestPlanner {
                 "PROVIDER_CLINICAL_CONSENT_EFFECTIVE_DATE", settings, true);
         String payerDate = payer == null ? null : date(row,
                 "PAYER_CONSENT_PREFERENCE_EFFECTIVE_DATE", settings, true);
-        ObjectNode coverage = payer == null ? null : coverage(row, settings);
+        ObjectNode coverage = payer == null || (!legacyCoverageRequired && !hasCoverage(row))
+                ? null : coverage(row, settings);
         var criteria = json.createObjectNode();
         for (String name : List.of("EXTERNAL_CONTRACT_ID", "RELATIONSHIP_CODE", "LAST_NAME", "FIRST_NAME",
                 "MIDDLE_NAME", "GENDER_CODE", "DATE_OF_BIRTH", "EXTERNAL_GROUP_ID", "PAYER_ID", "PAYER_POLICY_ID")) {
@@ -102,6 +112,14 @@ public class ConsentRequestPlanner {
                 || value.pin() == null || value.pin().codePointCount(0, value.pin().length()) != 3) {
             throw new IllegalArgumentException("Resolution requires contract, three-character pin and member GUID");
         }
+    }
+    private boolean hasCoverage(JsonNode row) {
+        for (String field : List.of("PAYER_ID", "PAYER_POLICY_ID", "PAYER_GROUP_NUMBER",
+                "PAYER_SUBSCRIBER_FIRST_NAME", "PAYER_SUBSCRIBER_LAST_NAME", "PAYER_SUBSCRIBER_MIDDLE_NAME",
+                "PAYER_GENDER_CODE", "PAYER_DATE_OF_BIRTH")) {
+            if (text(row, field, false) != null) return true;
+        }
+        return false;
     }
     private ObjectNode coverage(JsonNode row, ConsentSettings settings) {
         var coverage = json.createObjectNode();

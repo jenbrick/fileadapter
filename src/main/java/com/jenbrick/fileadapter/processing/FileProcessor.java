@@ -72,7 +72,7 @@ public class FileProcessor {
             throw new IllegalArgumentException("Input must be a regular file, not a symbolic link");
         }
         var profile = profiles.resolve(input, profileId);
-        var snapshot = new RunSnapshot(profile.consent() == null ? 1 : 2, profile, properties.mode(), properties.delivery());
+        var snapshot = new RunSnapshot(profile.consent() == null ? 1 : 3, profile, properties.mode(), properties.delivery());
         String config = json.writeValueAsString(snapshot);
         Files.createDirectories(work.resolve("processing"));
         Path temporary = Files.createTempFile(work.resolve("processing"), "staging-", ".tmp");
@@ -147,8 +147,13 @@ public class FileProcessor {
         if (run.status().equals("FAILED")) return false;
         if (run.status().equals("PAUSED") && !manual) return false;
         RunSnapshot snapshot = json.readValue(run.snapshot(), RunSnapshot.class);
-        if (snapshot.engineVersion() != 1 && snapshot.engineVersion() != 2) throw new IllegalStateException("Unsupported mapping engine version");
+        if (snapshot.engineVersion() < 1 || snapshot.engineVersion() > 3) throw new IllegalStateException("Unsupported mapping engine version");
         if (run.status().equals("FINALIZING")) return finish(run, snapshot);
+        if (snapshot.engineVersion() == 2 && snapshot.profile().consent() != null
+                && snapshot.mode() == IngestionProperties.Mode.LIVE) {
+            pause(id, 0, "Legacy consent object payloads require reconciliation and a new array run");
+            return false;
+        }
 
         if (run.status().equals("STAGING")) {
             long[] currentRecord = {0};
@@ -168,8 +173,14 @@ public class FileProcessor {
                             var normalized = normalizer.normalize(source, snapshot.profile().layout());
                             var requests = snapshot.profile().consent() == null
                                     ? java.util.List.of(mapper.map(normalized, snapshot.profile()))
-                                    : consentPlanner.plan(id, normalized, snapshot.profile().consent(), snapshot.mode());
-                            for (var request : requests) {
+                                    : consentPlanner.plan(id, normalized, snapshot.profile().consent(), snapshot.mode(),
+                                            snapshot.engineVersion());
+                            java.util.List<? extends com.fasterxml.jackson.databind.JsonNode> requestsToStage = requests;
+                            if (snapshot.profile().consent() != null && snapshot.engineVersion() >= 3) {
+                                requestsToStage = requests.isEmpty() ? java.util.List.of()
+                                        : java.util.List.of(json.valueToTree(requests));
+                            }
+                            for (var request : requestsToStage) {
                                 if (snapshot.profile().consent() == null) validator.validate(request, snapshot.profile());
                                 try {
                                     ledger.stage(id, ++requestNumber[0], source.number(), json.writeValueAsString(request));

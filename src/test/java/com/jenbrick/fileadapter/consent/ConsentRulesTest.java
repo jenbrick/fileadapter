@@ -41,6 +41,18 @@ class ConsentRulesTest {
         var planner=new ConsentRequestPlanner((criteria,s)->resolution(pin),null,json);
         assertThatThrownBy(()->planner.assemble(row(),settings("uuuu-MM-dd"))).isInstanceOf(IllegalArgumentException.class);
     }
+    @Test void payerWithoutCoverageProducesOneGeneralPayerEntry() throws Exception {
+        var row=row();
+        for (String field : List.of("PAYER_ID","PAYER_POLICY_ID","PAYER_GROUP_NUMBER",
+                "PAYER_SUBSCRIBER_FIRST_NAME","PAYER_SUBSCRIBER_LAST_NAME","PAYER_SUBSCRIBER_MIDDLE_NAME",
+                "PAYER_GENDER_CODE","PAYER_DATE_OF_BIRTH")) row.put(field, "");
+        row.put("PROVIDER_CLINICAL_CONSENT_PREFERENCE", "");
+        var planner=new ConsentRequestPlanner((criteria,s)->resolution("001"),null,json);
+        var entries=planner.assemble(row,settings("uuuu-MM-dd"));
+        assertThat(entries).hasSize(1);
+        assertThat(entries.get(0).path("consentTarget").asText()).isEqualTo("P2PDS");
+        assertThat(entries.get(0).has("coverage")).isFalse();
+    }
     @Test void nullManagerIsRejectedRatherThanAssumedToBeOwner()throws Exception{
         var planner=new ConsentRequestPlanner((criteria,s)->new Resolution(resolution("001").owner(),null,null,null),null,json);
         assertThatThrownBy(()->planner.assemble(row(),settings("uuuu-MM-dd"))).isInstanceOf(IllegalArgumentException.class);

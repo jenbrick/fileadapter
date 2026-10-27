@@ -41,17 +41,31 @@ class ConsentPreviewIntegrationTest {
         assertThat(ledger.get(id).status()).isEqualTo("PREVIEWED");
         var expected = Files.readAllLines(Path.of("examples/consent/expected-requests.jsonl"));
         var preview = json.readTree(WORK.resolve("preview").resolve(id).resolve(file+".preview.json").toFile());
-        int count = file.contains("object") ? 2 : 6;
+        int count = file.contains("object") ? 1 : 4;
         assertThat(preview.get("requests")).hasSize(count);
+        assertThat(preview.get("requests").get(0).isArray()).isTrue();
+        assertThat(preview.get("requests").get(0)).hasSize(2);
+        assertThat(preview.at("/source/requestCount").intValue()).isEqualTo(count);
+        assertThat(preview.at("/source/engineVersion").intValue()).isEqualTo(3);
+        assertThat(preview.at("/source/requestBodyShape").asText()).isEqualTo("MEMBER_CONSENT_ARRAY");
         for (int i=0;i<count;i++) assertThat(preview.get("requests").get(i)).isEqualTo(json.readTree(expected.get(i)));
         var origins = json.readTree(Path.of("examples/consent/expected-request-details.json").toFile());
         for (int i=0;i<count;i++) assertThat(preview.get("requestDetails").get(i)).isEqualTo(origins.get(i));
-        assertThat(preview.at("/requests/0/consentGuid").isNull()).isTrue();
-        assertThat(preview.at("/requests/1/consentGuid").asText()).isEqualTo("SYN-CONSENT-20001");
-        assertThat(preview.get("requests").get(0).has("coverage")).isFalse();
+        assertThat(preview.at("/requests/0/0/consentGuid").isNull()).isTrue();
+        assertThat(preview.at("/requests/0/1/consentGuid").asText()).isEqualTo("SYN-CONSENT-20001");
+        assertThat(preview.get("requests").get(0).get(0).has("coverage")).isFalse();
         assertThat(processor.process(Path.of("examples/consent", file), null, false)).isEqualTo(id);
     }
 
+    @Test void generalPayerExamplePostsOnePayerEntryWithoutCoverage() throws Exception {
+        String id=processor.process(Path.of("examples/consent/consent-object-payer-general.json"),null,false);
+        assertThat(ledger.get(id).status()).isEqualTo("PREVIEWED");
+        assertThat(ledger.count(id)).isEqualTo(1);
+        var body=json.readTree(ledger.next(id,0).payload());
+        assertThat(body).isEqualTo(json.readTree(Path.of("examples/consent/expected-payer-general-request.json").toFile()));
+        assertThat(body).hasSize(1);
+        assertThat(body.get(0).has("coverage")).isFalse();
+    }
     @Test void allBlankPreferencesAreSuccessfulNoOpAndDoNotLookup() throws Exception {
         var rows=json.readTree(Path.of("examples/consent/consent-array.json").toFile());
         var row=rows.get(4).deepCopy();
