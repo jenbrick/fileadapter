@@ -23,7 +23,7 @@ java -jar build/libs/fileadapter-0.1.0.jar --ingestion.file=examples/enrollment-
 java -jar build/libs/fileadapter-0.1.0.jar --ingestion.file=examples/enrollment.jsonl
 ```
 
-Each command defaults to preview, with output under `var/preview/<run-id>/requests.jsonl`. The single-object JSON example produces one request; every other sample produces two. To POST, configure the service URL/authentication as described in the README and add `--ingestion.mode=LIVE`. LAN polling uses exactly the same profiles and parsers, with `.ready` markers.
+Each command defaults to preview, with a source-labelled document at `var/preview/<run-id>/<original-filename>.preview.json` and raw request bodies at `var/preview/<run-id>/requests.jsonl`. The single-object JSON example produces one request; every other sample produces two. To POST, configure the service URL/authentication as described in the README and add `--ingestion.mode=LIVE`. LAN polling uses exactly the same profiles and parsers, with `.ready` markers.
 
 | Input | Profile | Parser source |
 | --- | --- | --- |
@@ -37,6 +37,37 @@ Each command defaults to preview, with output under `var/preview/<run-id>/reques
 | `enrollment.jsonl` | `enrollment-json-lines-v1` | `JsonFileAdapter.java` |
 
 Parser sources are under `src/main/java/com/jenbrick/fileadapter/source/`.
+
+## Identify the source of a preview
+
+For `examples/enrollment.xml`, open `var/preview/<run-id>/enrollment.xml.preview.json`. The document has `previewVersion`, `mode`, a `source` object, and a `requests` array containing the actual mapped request bodies.
+
+The source object contains the original `fileName`, a readable `fileType` (CSV, PIPE_DELIMITED, TAB_DELIMITED, FIXED_WIDTH, XML, or JSON), the adapter `format`, `charset`, `profileId`, `runId`, `contentSha256`, and `requestCount`. Format-specific details identify headers/delimiters, fixed-width record length, XML record path, or JSON document mode.
+
+For example, the XML source section looks like:
+
+```json
+{
+  "fileName": "enrollment.xml",
+  "fileType": "XML",
+  "format": "XML",
+  "charset": "UTF-8",
+  "profileId": "enrollment-xml-v1",
+  "runId": "<run-id>",
+  "contentSha256": "<source-content-sha256>",
+  "requestCount": 2,
+  "recordPath": "/employees/employee"
+}
+```
+
+Use Git Bash to find or display the labelled previews:
+
+```bash
+find var/preview -name '*.preview.json'
+cat var/preview/*/*.preview.json
+```
+
+The metadata wrapper is only for human-readable previews. `requests.jsonl` and live HTTP POST bodies retain the original request shape. An existing PREVIEWED run gets its missing labelled document automatically on the next application startup, from saved payloads without reparsing or POSTing. Only completed preview runs are backfilled; LIVE runs do not produce preview artifacts. Identical content/profile/settings reuse the original run, so its source filename remains the name first registered for that run. Unsafe filename characters are replaced in the preview's filename; the full original name remains in `source.fileName`.
 
 ## Fixed-width without a header
 

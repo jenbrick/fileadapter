@@ -23,6 +23,8 @@ import java.util.HexFormat;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -38,13 +40,14 @@ public class FileProcessor {
     private final ProcessingLedger ledger;
     private final ObjectMapper json;
     private final MeterRegistry metrics;
+    private final PreviewWriter previews;
     private final Path work;
 
     public FileProcessor(IngestionProperties properties, ProfileCatalog profiles,
                          AdapterRegistry adapters, SourceNormalizer normalizer,
                          RequestMapper mapper, RequestValidator validator,
                          UpsertClient client, ProcessingLedger ledger, ObjectMapper json,
-                         MeterRegistry metrics) {
+                         MeterRegistry metrics, PreviewWriter previews) {
         this.properties = properties;
         this.profiles = profiles;
         this.adapters = adapters;
@@ -55,6 +58,7 @@ public class FileProcessor {
         this.ledger = ledger;
         this.json = json;
         this.metrics = metrics;
+        this.previews = previews;
         this.work = properties.workDirectory().toAbsolutePath().normalize();
         validateDelivery(properties.delivery());
     }
@@ -112,10 +116,31 @@ public class FileProcessor {
         }
     }
 
+    /** Upgrade old preview artifacts from saved payloads, without reparsing or POSTing. */
+    @EventListener(ApplicationReadyEvent.class)
+    public synchronized void refreshPreviews() {
+        for (String id : ledger.previewedRuns()) {
+            var run = ledger.get(id);
+            if (previews.exists(run)) continue;
+            try {
+                RunSnapshot snapshot = json.readValue(run.snapshot(), RunSnapshot.class);
+                previews.write(run, snapshot);
+            } catch (Exception e) {
+                log.warn("Preview refresh for run {} failed ({})", id, e.getClass().getSimpleName());
+            }
+        }
+    }
+
     private boolean execute(String id, boolean manual) throws IOException {
         var run = ledger.get(id);
         if (run == null) throw new IllegalArgumentException("Unknown run ID");
-        if (run.status().equals("COMPLETED") || run.status().equals("PREVIEWED")) return true;
+        if (run.status().equals("COMPLETED")) return true;
+        if (run.status().equals("PREVIEWED")) {
+            if (!previews.exists(run)) {
+                previews.write(run, json.readValue(run.snapshot(), RunSnapshot.class));
+            }
+            return true;
+        }
         if (run.status().equals("FAILED")) return false;
         if (run.status().equals("PAUSED") && !manual) return false;
         RunSnapshot snapshot = json.readValue(run.snapshot(), RunSnapshot.class);
@@ -156,19 +181,7 @@ public class FileProcessor {
         }
 
         if (snapshot.mode() == IngestionProperties.Mode.PREVIEW) {
-            Path directory = work.resolve("preview").resolve(id);
-            Files.createDirectories(directory);
-            Path pending = directory.resolve("requests.jsonl.tmp");
-            try (var writer = Files.newBufferedWriter(pending, StandardCharsets.UTF_8)) {
-                long after = 0;
-                ProcessingLedger.Request request;
-                while ((request = ledger.next(id, after)) != null) {
-                    writer.write(request.payload());
-                    writer.newLine();
-                    after = request.number();
-                }
-            }
-            atomicMove(pending, directory.resolve("requests.jsonl"));
+            previews.write(run, snapshot);
             ledger.status(id, "FINALIZING", null);
             return finish(run, snapshot);
         }

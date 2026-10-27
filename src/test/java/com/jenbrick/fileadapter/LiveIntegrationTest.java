@@ -170,6 +170,21 @@ class LiveIntegrationTest {
         assertThat(BODIES).isEmpty();
     }
 
+    @Test void legacyPreviewBackfillNeverPostsEvenWhenCurrentModeIsLive() throws Exception {
+        String id = "f".repeat(64);
+        var snapshot = new RunSnapshot(1, properties.profiles().get(0),
+                IngestionProperties.Mode.PREVIEW, properties.delivery());
+        ledger.create(id, "old-preview.csv", "0".repeat(64), json.writeValueAsString(snapshot));
+        ledger.stage(id, 1, "{\"employeeId\":\"SAVED001\"}");
+        ledger.status(id, "PREVIEWED", null);
+        processor.refreshPreviews();
+        assertThat(BODIES).isEmpty();
+        var labelled = json.readTree(WORK.resolve("preview").resolve(id)
+                .resolve("old-preview.csv.preview.json").toFile());
+        assertThat(labelled.at("/requests/0/employeeId").asText()).isEqualTo("SAVED001");
+        assertThat(ledger.get(id).status()).isEqualTo("PREVIEWED");
+    }
+
     @Test void timeoutIsUncertainAndDoesNotExposeResponseData() {
         var settings = new IngestionProperties.Delivery(
                 URI.create("http://127.0.0.1:" + SERVER.getAddress().getPort() + "/slow"),

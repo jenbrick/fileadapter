@@ -50,6 +50,11 @@ public class ProcessingLedger {
                 """, String.class);
     }
 
+    public List<String> previewedRuns() {
+        return jdbc.queryForList("SELECT id FROM ingestion_run WHERE status='PREVIEWED' ORDER BY updated_at",
+                String.class);
+    }
+
     public void status(String id, String status, String error) {
         jdbc.update("UPDATE ingestion_run SET status=?,error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 status, error, id);

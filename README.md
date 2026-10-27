@@ -29,7 +29,7 @@ git pull --ff-only
 
 If downloads are blocked by your network, install a JDK 17 manually, set `JAVA_HOME` to its installation directory (not its `bin` directory), and restart Git Bash. `java -version`, `javac -version`, and `./gradlew -q javaToolchains` help check the detected installations. The toolchain download does not provide the initial Java runtime needed to launch Gradle.
 
-The example generates two nested employee requests. Inspect `var/preview/<run-id>/requests.jsonl` and compare them with `examples/expected-requests.jsonl`. Each line is a separate JSON request object. No HTTP requests are made in preview mode. A successful one-shot run exits with code 0; a failed or paused run exits with code 1. The source example is copied, not removed.
+The example generates two nested employee requests. Open `var/preview/<run-id>/enrollment.csv.preview.json` to see the original filename, file type, profile, run identity, and generated requests together. `requests.jsonl` in the same directory retains the exact POST-body objects, one per line, for comparison with `examples/expected-requests.jsonl`. No HTTP requests are made in preview mode. A successful one-shot run exits with code 0; a failed or paused run exits with code 1. The source example is copied, not removed.
 
 Repeated processing of identical content with the same profile, mode, and delivery settings returns the existing run. Changing from PREVIEW to LIVE creates a different run.
 
@@ -161,12 +161,14 @@ Requests are staged in H2, not accumulated as a whole-file Java list. Disk space
 var/
   state/                 H2 database and process lock
   processing/<run-id>/    Input and snapshot while active or paused
-  preview/<run-id>/       requests.jsonl (preview runs)
+  preview/<run-id>/       <source-file>.preview.json plus requests.jsonl
   archive/<run-id>/       Input and snapshot after success
   errors/<run-id>/        Error report; failed inputs under input-files/
 ```
 
 Temporary copy files left by a crash before run registration have no network effects. They can be removed when no worker is running. Do not remove registered processing directories or edit the ledger while the worker is running.
+
+On startup, missing source-labelled previews are backfilled for existing PREVIEWED runs using their saved snapshots and request payloads. This does not reparse inputs, change run identities, or send HTTP requests. Repeating a completed preview also recreates missing artifacts.
 
 Automatic startup/poll recovery handles staged, ready, delivering, and finalizing runs using their saved snapshot and payloads. A prior in-flight POST is replayed only when `replay-safe` is true. A crash after archive movement but before completion recording is reconciled. Mapping code extensions must remain compatible with snapshots being resumed; the snapshot's engine version is checked, but arbitrary Java implementation changes are not automatically versioned.
 
@@ -190,7 +192,7 @@ H2 is the durable ledger for this single-instance baseline. There are no cross-s
 ./gradlew test
 ```
 
-Tests cover every example through preview and a real local HTTP service, fixed-width ranges and Unicode offsets, XML namespaces/attributes/repeated children/nulls and DTD rejection, JSON document modes/duplicate fields/trailing data, nested mapping, aliases, types, presence rules, marker-based intake, whole-file preflight, retry identity, partial success, interrupted unsafe delivery, timeout/202 classification, and old CSV snapshot compatibility. HTTP tests use a local in-process server and do not call your existing service.
+Tests cover source metadata and named previews for every format, safe legacy-preview backfill, every example through preview and a real local HTTP service, fixed-width ranges and Unicode offsets, XML namespaces/attributes/repeated children/nulls and DTD rejection, JSON document modes/duplicate fields/trailing data, nested mapping, aliases, types, presence rules, marker-based intake, whole-file preflight, retry identity, partial success, interrupted unsafe delivery, timeout/202 classification, and old CSV snapshot compatibility. HTTP tests use a local in-process server and do not call your existing service.
 
 Micrometer counters: `fileadapter.files` by final status and `fileadapter.requests` by delivery outcome. This is a non-web worker; actuator HTTP endpoints are not exposed. Add a metrics exporter for deployment monitoring.
 

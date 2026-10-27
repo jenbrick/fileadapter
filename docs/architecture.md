@@ -41,7 +41,7 @@ flowchart TD
 
     subgraph Execution["Execution"]
         READY --> MODE{"Preview or live?"}
-        MODE -->|Preview| JSONL["Publish JSON Lines preview"]
+        MODE -->|Preview| JSONL["Publish named preview + source metadata + raw JSON Lines"]
         MODE -->|Live| SEND["Persist SENDING + POST using Jackson"]
         SEND --> API["Existing upsert API"]
         API --> OUTCOME{"Outcome"}
@@ -73,3 +73,5 @@ flowchart TD
 The H2 ledger stores file-level state, immutable configuration snapshots, staged request payloads, attempts, and acknowledgements. Local source copies and previews live under the configured work directory. There is no JSON intermediate file in the live POST path.
 
 The implementation deliberately uses a single worker and sequential delivery. It provides restart recovery and replay safeguards, not a distributed exactly-once transaction. Delimited, fixed-width, XML, and JSON parsers are implemented. Full JSON Schema validation, row aggregation, byte-oriented fixed-width layouts, mixed-content XML, envelope JSON record selection, and asynchronous API completion remain extensions once their contracts are known.
+
+Preview artifacts include a source-labelled JSON document alongside unchanged raw request JSON Lines. On startup, completed preview runs missing these artifacts are backfilled from the ledger without source parsing or HTTP delivery.
