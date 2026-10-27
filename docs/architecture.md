@@ -24,8 +24,13 @@ flowchart TD
     subgraph Preflight["Whole-file preflight"]
         ID --> REGISTRY["Format adapter registry"]
         REGISTRY --> CSV["Delimited adapter: headed/headerless CSV, pipe, tab"]
-        REGISTRY -.-> FUTURE["Future XML, JSON, fixed-width beans"]
+        REGISTRY --> FIXED["Fixed-width adapter: headerless character ranges"]
+        REGISTRY --> XML["XML adapter: record path + namespaces"]
+        REGISTRY --> JSON["JSON adapter: object, array, lines"]
         CSV --> SOURCE["SourceRecord: logical number + JsonNode"]
+        FIXED --> SOURCE
+        XML --> SOURCE
+        JSON --> SOURCE
         SOURCE --> NORMALIZE["Logical field and alias resolution"]
         NORMALIZE --> MAP["Configurable nested mapping"]
         EXTENSION["Named Java transforms"] --> MAP
@@ -67,4 +72,4 @@ flowchart TD
 
 The H2 ledger stores file-level state, immutable configuration snapshots, staged request payloads, attempts, and acknowledgements. Local source copies and previews live under the configured work directory. There is no JSON intermediate file in the live POST path.
 
-The implementation deliberately uses a single worker and sequential delivery. It provides restart recovery and replay safeguards, not a distributed exactly-once transaction. Full JSON Schema validation, row aggregation, asynchronous API completion, and non-delimited parsers are extension work once their contracts are known.
+The implementation deliberately uses a single worker and sequential delivery. It provides restart recovery and replay safeguards, not a distributed exactly-once transaction. Delimited, fixed-width, XML, and JSON parsers are implemented. Full JSON Schema validation, row aggregation, byte-oriented fixed-width layouts, mixed-content XML, envelope JSON record selection, and asynchronous API completion remain extensions once their contracts are known.

@@ -9,6 +9,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
@@ -56,6 +58,22 @@ class PreviewIntegrationTest {
         assertThat(Files.readString(WORK.resolve("errors").resolve(id).resolve("error.json")))
                 .contains("PREFLIGHT", "3").doesNotContain("not-a-date");
         assertThat(Files.exists(WORK.resolve("errors").resolve(id).resolve("input-files/input"))).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"enrollment.fw", "enrollment-header.psv", "enrollment-noheader.psv",
+            "enrollment.xml", "enrollment-array.json", "enrollment-object.json", "enrollment.jsonl"})
+    void allNewExamplesProduceTheSameNestedRequests(String filename) throws Exception {
+        String id = processor.process(Path.of("examples", filename), null, false);
+        assertThat(ledger.get(id).status()).isEqualTo("PREVIEWED");
+        var actual = Files.readAllLines(WORK.resolve("preview").resolve(id).resolve("requests.jsonl"));
+        var expected = Files.readAllLines(Path.of("examples/expected-requests.jsonl"));
+        int count = filename.contains("object") ? 1 : 2;
+        assertThat(actual).hasSize(count);
+        for (int i = 0; i < count; i++) {
+            assertThat(json.readTree(actual.get(i))).isEqualTo(json.readTree(expected.get(i)));
+        }
+        assertThat(processor.process(Path.of("examples", filename), null, false)).isEqualTo(id);
     }
 
     @Test void pollerRequiresReadyMarkerAndConsumesOnlyAfterStaging() throws Exception {

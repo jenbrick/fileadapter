@@ -18,8 +18,9 @@ public class SourceNormalizer {
             if (field.aliases() != null) candidates.addAll(field.aliases());
             JsonNode value = null;
             for (String candidate : candidates) {
-                JsonNode found = source.payload().get(candidate);
-                if (found == null) continue;
+                JsonNode found = candidate.startsWith("/")
+                        ? source.payload().at(candidate) : source.payload().get(candidate);
+                if (found == null || found.isMissingNode()) continue;
                 if (value != null && !value.equals(found)) {
                     throw new RecordFailure("Record " + source.number() + ": conflicting source aliases for " + name);
                 }

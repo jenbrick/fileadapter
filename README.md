@@ -81,7 +81,7 @@ The poller requires both the marker and a minimum file age. It ignores hidden fi
 
 ## Change input and output structures
 
-The active example profile is in `src/main/resources/application.yml`. During development, edit it and restart. In deployment, use an external configuration file:
+The active example profiles are in `src/main/resources/application.yml`. During development, edit it and restart. In deployment, use an external configuration file:
 
 ```bash
 java -jar build/libs/fileadapter-0.1.0.jar \
@@ -110,7 +110,7 @@ Example mapping:
   transforms: [trim]
 ```
 
-`layout.fields` resolves physical column names into logical source fields. All configured aliases present in a row must agree. Column names are case-sensitive. Unknown columns are ignored when logical fields are configured. If `layout.fields` is empty, mappings address raw column names directly.
+`layout.fields` resolves physical column names into logical source fields. A selector starting with `/` is a JSON Pointer into a nested parsed record; other selectors are literal field names. All configured aliases present in a row must agree. Column names are case-sensitive. Unknown columns are ignored when logical fields are configured. If `layout.fields` is empty, mappings address raw column names directly.
 
 Supported transformations: `trim`, `uppercase`, `lowercase`, `integer`, `decimal`, `boolean`, `iso-date`, and `us-date`. Boolean accepts only true/false, case-insensitively. `us-date` requires a valid `MM/dd/yyyy` date and produces ISO `yyyy-MM-dd`. Integer identifiers stay strings unless you explicitly apply `integer`, preserving leading zeroes.
 
@@ -126,7 +126,9 @@ The output contract checks required paths, types, and nullability; it is **not a
 | --- | --- |
 | CSV with headers | Active example, implemented |
 | Headerless CSV, pipe, tab | Implemented through the configurable delimited adapter |
-| Fixed-width, XML, JSON | Declared format identifiers and registry extension points; parsing not implemented |
+| Fixed-width without headers | Implemented; configurable character ranges and exact record length |
+| XML | Implemented; absolute record paths, namespaces, attributes, repeated children |
+| JSON | Implemented; root object, root array, or JSON Lines |
 
 Headerless layout example:
 
@@ -140,7 +142,9 @@ columns: [employee_id, first_name, last_name, email, city, state, plan_code, eff
 
 UTF-8 BOMs, quoted commas, escaped quotes, and multiline CSV values are supported. Duplicate/blank headers and inconsistent record widths are rejected. Configure a non-UTF-8 charset explicitly; automatic encoding detection is not provided.
 
-See [the extension guide](docs/extensions.md) for adding adapters, named Java transformations, richer validators, or aggregate mapping. No placeholder adapter silently accepts unimplemented formats.
+See [the format guide](docs/formats.md) for runnable fixed-width, XML, pipe-delimited, and JSON examples, layout settings, and parser conventions. All example profiles share the employee mappings and contract through YAML anchors.
+
+See [the extension guide](docs/extensions.md) for adding adapters, named Java transformations, richer validators, or aggregate mapping. All four declared formats now have registered implementations.
 
 ## Processing, failure, and recovery
 
@@ -186,7 +190,7 @@ H2 is the durable ledger for this single-instance baseline. There are no cross-s
 ./gradlew test
 ```
 
-Tests cover parser edge cases, nested mapping, aliases, types, presence rules, preview output, marker-based intake, whole-file preflight, real HTTP POST serialization, retry identity, partial success, interrupted unsafe delivery, and timeout/202 classification. HTTP tests use a local in-process server and do not call your existing service.
+Tests cover every example through preview and a real local HTTP service, fixed-width ranges and Unicode offsets, XML namespaces/attributes/repeated children/nulls and DTD rejection, JSON document modes/duplicate fields/trailing data, nested mapping, aliases, types, presence rules, marker-based intake, whole-file preflight, retry identity, partial success, interrupted unsafe delivery, timeout/202 classification, and old CSV snapshot compatibility. HTTP tests use a local in-process server and do not call your existing service.
 
 Micrometer counters: `fileadapter.files` by final status and `fileadapter.requests` by delivery outcome. This is a non-web worker; actuator HTTP endpoints are not exposed. Add a metrics exporter for deployment monitoring.
 

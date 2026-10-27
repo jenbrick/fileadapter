@@ -33,7 +33,7 @@ ingestion:
         charset: UTF-8
         delimiter: ","
         header-mode: FIRST_RECORD
-        fields:
+        fields: &csvFields
           employeeId:
             column: employee_id
             aliases: [employee_number, emp_id]
@@ -53,7 +53,7 @@ ingestion:
           effectiveDate:
             column: effective_date
 
-      mappings:
+      mappings: &employeeMappings
         - source: employeeId
           target: employeeId
           required: true
@@ -85,7 +85,7 @@ ingestion:
           required: true
           transforms: [trim, iso-date]
 
-      contract:
+      contract: &employeeContract
         - path: employeeId
           type: STRING
           required: true
@@ -106,6 +106,108 @@ ingestion:
         - path: coverage.effectiveDate
           type: STRING
           required: true
+
+
+    - id: enrollment-fixed-v1
+      filename-pattern: "enrollment*.fw"
+      layout:
+        format: FIXED_WIDTH
+        charset: UTF-8
+        header-mode: NONE
+        fields: *csvFields
+        fixed-width:
+          record-length: 106
+          columns:
+            - { name: employee_id, offset: 0, length: 8 }
+            - { name: first_name, offset: 8, length: 12 }
+            - { name: last_name, offset: 20, length: 16 }
+            - { name: email, offset: 36, length: 28 }
+            - { name: city, offset: 64, length: 14 }
+            - { name: state, offset: 78, length: 2 }
+            - { name: plan_code, offset: 80, length: 16 }
+            - { name: effective_date, offset: 96, length: 10 }
+      mappings: *employeeMappings
+      contract: *employeeContract
+
+    - id: enrollment-pipe-header-v1
+      filename-pattern: "enrollment-header*.psv"
+      layout:
+        format: DELIMITED
+        charset: UTF-8
+        delimiter: "|"
+        header-mode: FIRST_RECORD
+        fields: *csvFields
+      mappings: *employeeMappings
+      contract: *employeeContract
+
+    - id: enrollment-pipe-noheader-v1
+      filename-pattern: "enrollment-noheader*.psv"
+      layout:
+        format: DELIMITED
+        charset: UTF-8
+        delimiter: "|"
+        header-mode: NONE
+        columns: [employee_id, first_name, last_name, email, city, state, plan_code, effective_date]
+        fields: *csvFields
+      mappings: *employeeMappings
+      contract: *employeeContract
+
+    - id: enrollment-xml-v1
+      filename-pattern: "enrollment*.xml"
+      layout:
+        format: XML
+        charset: UTF-8
+        xml:
+          record-path: /employees/employee
+        fields:
+          employeeId: { column: "/@id" }
+          firstName: { column: /person/firstName }
+          lastName: { column: /person/lastName }
+          email: { column: /person/contact/email }
+          city: { column: /person/address/city }
+          state: { column: /person/address/state }
+          planCode: { column: /coverage/planCode }
+          effectiveDate: { column: /coverage/effectiveDate }
+      mappings: *employeeMappings
+      contract: *employeeContract
+
+    - id: enrollment-json-array-v1
+      filename-pattern: "enrollment-array*.json"
+      layout:
+        format: JSON
+        charset: UTF-8
+        json: { mode: ARRAY }
+        fields: &jsonFields
+          employeeId: { column: employeeId }
+          firstName: { column: /person/firstName }
+          lastName: { column: /person/lastName }
+          email: { column: /person/contact/email }
+          city: { column: /person/address/city }
+          state: { column: /person/address/state }
+          planCode: { column: /coverage/planCode }
+          effectiveDate: { column: /coverage/effectiveDate }
+      mappings: *employeeMappings
+      contract: *employeeContract
+
+    - id: enrollment-json-object-v1
+      filename-pattern: "enrollment-object*.json"
+      layout:
+        format: JSON
+        charset: UTF-8
+        json: { mode: OBJECT }
+        fields: *jsonFields
+      mappings: *employeeMappings
+      contract: *employeeContract
+
+    - id: enrollment-json-lines-v1
+      filename-pattern: "enrollment*.jsonl"
+      layout:
+        format: JSON
+        charset: UTF-8
+        json: { mode: LINES }
+        fields: *jsonFields
+      mappings: *employeeMappings
+      contract: *employeeContract
 
 upsert:
   bearer-token: ${UPSERT_BEARER_TOKEN:}

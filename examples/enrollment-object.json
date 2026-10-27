@@ -1,0 +1,18 @@
+{
+  "coverage": {
+    "effectiveDate": "2027-01-01",
+    "planCode": "DENTAL_PLUS"
+  },
+  "employeeId": "E1001",
+  "person": {
+    "address": {
+      "city": "York",
+      "state": "PA"
+    },
+    "contact": {
+      "email": "jordan@example.com"
+    },
+    "firstName": "Jordan",
+    "lastName": "Rivera"
+  }
+}

@@ -2,19 +2,18 @@
 
 ## Add a file format
 
-Implement `FileFormatAdapter` as a Spring component:
+Delimited, fixed-width, XML, and JSON adapters are already implemented; configure them using [the format guide](formats.md). For an additional syntax, add its identifier to `Profile.Format` and validation to `LayoutValidator`, then implement `FileFormatAdapter` as a Spring component. For example, after adding `YAML`:
 
 ```java
 @Component
-public class XmlFileAdapter implements FileFormatAdapter {
-    public Profile.Format format() { return Profile.Format.XML; }
+public class YamlFileAdapter implements FileFormatAdapter {
+    public Profile.Format format() { return Profile.Format.YAML; }
 
     public void read(Path file, Profile.Layout layout,
                      Consumer<SourceRecord> consumer) throws IOException {
         // Open and close parser resources here.
         // Emit one record per agreed business record boundary.
         // Preserve nested objects, arrays, and explicit nulls in JsonNode.
-        // XML: disable DTDs/external entities; define namespaces and record paths.
     }
 }
 ```
@@ -23,7 +22,7 @@ The registry discovers beans automatically and rejects duplicate registrations. 
 
 Record numbers must be positive, unique, increasing within a file, and stable across repeated parses of the same input. They identify ledger entries and idempotency keys. Keep parser resource ownership inside `read`; do not expose a lazy stream after closing its file reader.
 
-Fixed-width feeds need offsets/lengths and an explicit byte-versus-character convention. XML needs record boundaries, namespaces, and cardinality rules. JSON needs root-object versus array versus JSON Lines semantics. Headerless delimited files need an explicit ordered `columns` list. These choices cannot be inferred reliably from an extension.
+The existing fixed-width adapter counts Unicode code points, with zero-based offsets. XML uses namespace-aware absolute record paths and rejects DTDs/entities and mixed content. JSON uses an explicit OBJECT, ARRAY, or LINES mode. Headerless delimited files use an explicit ordered `columns` list. These choices cannot be inferred reliably from a file extension.
 
 ## Add a business transformation
 
@@ -44,7 +43,7 @@ Reference it as `transforms: [normalize-plan-code]`. Names must be unique; unkno
 
 `RequestMapper` is an interface. Supply an `@Primary` implementation to replace the configurable mapper with complex Java rules or typed DTO assembly converted to an `ObjectNode`. The delivery layer accepts `JsonNode`, so source parsing and HTTP transport remain independent. `RequestValidator` can likewise be replaced with an `@Primary` subclass or refactored to a dedicated interface when adding a JSON Schema validator.
 
-The baseline supports nested object paths such as `person.contact.email`; array-index expressions, conditionals, joins, and arbitrary expression evaluation are intentionally absent. Custom transforms can return JSON objects/arrays. For many source rows per target entity, introduce a per-run assembler **between normalization and mapping** and define aggregation keys, ordering, duplicate/conflict rules, bounded staging, and stable output identifiers. Do not hide grouping inside the CSV syntax parser.
+The mapping engine supports nested object paths such as `person.contact.email`; array-index expressions, conditionals, joins, and arbitrary expression evaluation are intentionally absent. Custom transforms can return JSON objects/arrays. For many source rows per target entity, introduce a per-run assembler **between normalization and mapping** and define aggregation keys, ordering, duplicate/conflict rules, bounded staging, and stable output identifiers. Do not hide grouping inside the CSV syntax parser.
 
 ## Add an operator reconciliation workflow
 
@@ -53,3 +52,7 @@ For a non-idempotent service, a timeout cannot establish whether a POST committe
 ## Evolve output contracts
 
 Change mapping definitions and contract rules together, then run representative input/output fixtures in preview. Keep the current request endpoint and authentication outside input adapters. Version profile IDs when meaning changes. Existing runs retain their original profile and delivery snapshot, so newly edited settings cannot silently alter partially delivered requests.
+
+## Preserve old processing snapshots
+
+New optional layout properties are omitted from JSON when absent, preserving old CSV profile serialization and content-based run identity. Old snapshots deserialize with null format-specific options. Changes to existing parser/mapping semantics still require explicit version planning; adding optional properties alone must not silently change old run identities.

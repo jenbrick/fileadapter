@@ -19,8 +19,13 @@ flowchart TD
     subgraph Preflight["Whole-file preflight"]
         ID --> REGISTRY["Format adapter registry"]
         REGISTRY --> CSV["Delimited adapter: headed/headerless CSV, pipe, tab"]
-        REGISTRY -.-> FUTURE["Future XML, JSON, fixed-width beans"]
+        REGISTRY --> FIXED["Fixed-width adapter: headerless character ranges"]
+        REGISTRY --> XML["XML adapter: record path + namespaces"]
+        REGISTRY --> JSON["JSON adapter: object, array, lines"]
         CSV --> SOURCE["SourceRecord: logical number + JsonNode"]
+        FIXED --> SOURCE
+        XML --> SOURCE
+        JSON --> SOURCE
         SOURCE --> NORMALIZE["Logical field and alias resolution"]
         NORMALIZE --> MAP["Configurable nested mapping"]
         EXTENSION["Named Java transforms"] --> MAP

@@ -22,6 +22,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
@@ -78,6 +80,39 @@ class LiveIntegrationTest {
         assertThat(BODIES).hasSize(4);
         assertThat(KEYS.get(3)).isEqualTo(id + ":2");
         assertThat(KEYS.stream().filter(k -> k.equals(id + ":1")).count()).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"enrollment.fw", "enrollment-header.psv", "enrollment-noheader.psv",
+            "enrollment.xml", "enrollment-array.json", "enrollment-object.json", "enrollment.jsonl"})
+    void allNewFormatsReachTheExistingHttpDeliveryFlow(String filename) throws Exception {
+        String id = processor.process(Path.of("examples", filename), null, false);
+        int count = filename.contains("object") ? 1 : 2;
+        assertThat(ledger.get(id).status()).isEqualTo("COMPLETED");
+        assertThat(BODIES).hasSize(count);
+        var expected = Files.readAllLines(Path.of("examples/expected-requests.jsonl"));
+        for (int i = 0; i < count; i++) {
+            assertThat(json.readTree(BODIES.get(i))).isEqualTo(json.readTree(expected.get(i)));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"enrollment.fw", "enrollment-header.psv", "enrollment.xml",
+            "enrollment-array.json", "enrollment.jsonl"})
+    void malformedLaterRecordsAcrossFormatsNeverCausePartialDelivery(String filename) throws Exception {
+        String valid = Files.readString(Path.of("examples", filename));
+        String invalid = switch (filename) {
+            case "enrollment.fw" -> valid + "short\n";
+            case "enrollment-header.psv" -> valid + "too|few\n";
+            case "enrollment.xml" -> valid.replace("</employees>", "</broken>");
+            case "enrollment-array.json" -> valid.stripTrailing().replaceFirst("\\]$", ",null]");
+            default -> valid + "{bad-json}\n";
+        };
+        Path input = WORK.resolve(filename);
+        Files.writeString(input, invalid);
+        String id = processor.process(input, null, false);
+        assertThat(ledger.get(id).status()).isEqualTo("FAILED");
+        assertThat(BODIES).isEmpty();
     }
 
     @Test void rejectsPermanentHttpFailureWithoutSendingLaterRecords() throws Exception {

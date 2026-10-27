@@ -54,7 +54,7 @@ class AdapterAndMappingTest {
                 .hasMessageContaining("Column count mismatch");
     }
 
-    @Test void leavesUnimplementedFormatsExplicitlyUnavailable() {
+    @Test void rejectsFormatsNotRegisteredInThisRegistry() {
         var registry = new AdapterRegistry(List.of(adapter));
         for (var format : List.of(Profile.Format.XML, Profile.Format.JSON, Profile.Format.FIXED_WIDTH)) {
             assertThatThrownBy(() -> registry.require(format)).hasMessageContaining("not implemented");

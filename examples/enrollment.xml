@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<employees>
+  <employee id="E1001">
+    <person>
+      <firstName>Jordan</firstName>
+      <lastName>Rivera</lastName>
+      <contact><email>jordan@example.com</email></contact>
+      <address><city>York</city><state>PA</state></address>
+    </person>
+    <coverage><planCode>DENTAL_PLUS</planCode><effectiveDate>2027-01-01</effectiveDate></coverage>
+  </employee>
+  <employee id="E1002">
+    <person>
+      <firstName>Alex</firstName>
+      <lastName>Chen, Jr.</lastName>
+      <address><city>Lancaster</city><state>PA</state></address>
+    </person>
+    <coverage><planCode>DENTAL_BASIC</planCode><effectiveDate>2027-02-01</effectiveDate></coverage>
+  </employee>
+</employees>
