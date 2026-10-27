@@ -1,0 +1,13 @@
+# Explicitly opt in to synthetic member resolution. LIVE mode refuses fixture lookup.
+consent:
+  lookup-mode: FIXTURE
+  demo-source-transaction: synthetic.demo
+  demo-source-datetime: "2026-10-27T12:00:00Z"
+
+ingestion:
+  poll-enabled: false
+  work-directory: ./var-consent-demo
+  mode: PREVIEW
+
+# Stable metadata makes previews comparable across every format.
+# Environment variables can override these values for other runs.

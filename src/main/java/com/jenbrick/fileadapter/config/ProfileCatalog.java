@@ -23,6 +23,10 @@ public class ProfileCatalog {
             }
             matcher(profile.filenamePattern());
             LayoutValidator.validate(profile.layout());
+            if (profile.consent() != null) {
+                profile.consent().validate();
+                continue;
+            }
             if (profile.mappings() == null || profile.mappings().isEmpty() || profile.contract() == null) {
                 throw new IllegalArgumentException("Profile requires mappings and an output contract");
             }

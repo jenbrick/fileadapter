@@ -4,6 +4,21 @@ A Spring Boot / Gradle worker that reads files from a mounted LAN directory, map
 
 Java 17 · Spring Boot 3.5.16 · Gradle Wrapper 8.14.3 · Jackson · Apache Commons CSV · local H2 ledger.
 
+## CMS Interop consent workflow
+
+The active consent implementation accepts the 30 supplied member/consent/payer fields across CSV, headerless CSV, pipe, fixed width, XML and JSON. One member row produces zero, one or two requests: provider clinical (`PCDS`) and payer-to-payer (`P2PDS`, including coverage). Member enrichment resolves internal contract, PIN, member GUID, manager identity and existing consent GUIDs before any upsert.
+
+```bash
+./gradlew test bootJar
+java -jar build/libs/fileadapter-0.1.0.jar \
+  --spring.profiles.active=consent-demo \
+  --ingestion.file=examples/consent/consent.csv
+```
+
+This uses synthetic fixture lookup and PREVIEW mode. Open `var-consent-demo/preview/<run-id>/consent.csv.preview.json` for the source-labelled six-request result, including each request's source row and consent target. No HTTP calls occur in this fixture demo. Normal consent previews use HTTP enrichment but send no consent upserts. LIVE requires HTTP enrichment and refuses fixture lookup.
+
+See the [consent guide](docs/consent.md) for all formats, full field disposition, contract assumptions, enrichment API, local HTTP demos, recovery and integration decisions. The employee examples below remain supported as the generic configurable mapping example.
+
 ## Developer walkthrough
 
 The [PowerPoint and presentation guide](docs/presentations/README.md) walk through the code, all supported formats, configurable mappings, previews, HTTP delivery, recovery, and demo steps.
@@ -33,7 +48,7 @@ git pull --ff-only
 
 If downloads are blocked by your network, install a JDK 17 manually, set `JAVA_HOME` to its installation directory (not its `bin` directory), and restart Git Bash. `java -version`, `javac -version`, and `./gradlew -q javaToolchains` help check the detected installations. The toolchain download does not provide the initial Java runtime needed to launch Gradle.
 
-The example generates two nested employee requests. Open `var/preview/<run-id>/enrollment.csv.preview.json` to see the original filename, file type, profile, run identity, and generated requests together. `requests.jsonl` in the same directory retains the exact POST-body objects, one per line, for comparison with `examples/expected-requests.jsonl`. No HTTP requests are made in preview mode. A successful one-shot run exits with code 0; a failed or paused run exits with code 1. The source example is copied, not removed.
+The example generates two nested employee requests. Open `var/preview/<run-id>/enrollment.csv.preview.json` to see the original filename, file type, profile, run identity, and generated requests together. `requests.jsonl` in the same directory retains the exact POST-body objects, one per line, for comparison with `examples/expected-requests.jsonl`. This employee preview makes no HTTP requests. Consent previews may call HTTP member lookup; they never POST consent upserts. A successful one-shot run exits with code 0; a failed or paused run exits with code 1. The source example is copied, not removed.
 
 Repeated processing of identical content with the same profile, mode, and delivery settings returns the existing run. Changing from PREVIEW to LIVE creates a different run.
 
@@ -57,7 +72,7 @@ $env:UPSERT_BEARER_TOKEN = 'your-token'
 java -jar build/libs/fileadapter-0.1.0.jar --ingestion.file=examples/enrollment.csv --ingestion.mode=LIVE
 ```
 
-The application sends one POST per data record, with `Content-Type: application/json`. Jackson serializes an `ObjectNode`; the application does not manually concatenate JSON. The default acknowledged statuses are 200, 201, and 204. A 202 response is uncertain until your service's asynchronous completion contract is implemented or you explicitly configure it as an acknowledgement.
+Employee profiles send one POST per data record. Consent profiles send one POST per populated consent target, with `Content-Type: application/json`. Jackson serializes an `ObjectNode`; the application does not manually concatenate JSON. The default acknowledged statuses are 200, 201, and 204. A 202 response is uncertain until your service's asynchronous completion contract is implemented or you explicitly configure it as an acknowledgement.
 
 Authentication currently supports an optional bearer token. Endpoint and request/response contracts are examples until your service details are supplied.
 
@@ -100,6 +115,7 @@ Each profile contains:
 | --- | --- |
 | `id`, `filename-pattern` | Explicit feed identity and filename routing; exactly one profile must match |
 | `layout` | Parser format, charset, delimiter, headers, and logical source-field aliases |
+| `consent` | Consent profiles: business rules, code maps, metadata and member lookup; replaces generic mappings/contract |
 | `mappings` | Logical source paths to nested output paths, defaults, transformations, value translations |
 | `contract` | Required output paths, JSON types, and nullability |
 
@@ -155,7 +171,7 @@ See [the extension guide](docs/extensions.md) for adding adapters, named Java tr
 1. Copy input locally and compute SHA-256.
 2. Derive run identity from content plus a complete profile/delivery/mode snapshot.
 3. Store the immutable snapshot and source input.
-4. Stream parsing and mapping into a durable request ledger. Validate the **whole file before any POST**.
+4. Stream parsing, enrichment where configured, and mapping into a durable request ledger. Validate the **whole file before any POST**.
 5. Preview to JSON Lines or deliver the staged requests sequentially.
 6. Persist acknowledgement per request and archive only when all requests are acknowledged.
 
@@ -176,7 +192,7 @@ On startup, missing source-labelled previews are backfilled for existing PREVIEW
 
 Automatic startup/poll recovery handles staged, ready, delivering, and finalizing runs using their saved snapshot and payloads. A prior in-flight POST is replayed only when `replay-safe` is true. A crash after archive movement but before completion recording is reconciled. Mapping code extensions must remain compatible with snapshots being resumed; the snapshot's engine version is checked, but arbitrary Java implementation changes are not automatically versioned.
 
-**Idempotency is a service guarantee, not a property created by sending a header.** The application always supplies a stable `<run-id>:<record-number>` key by default. Set `ingestion.delivery.replay-safe=true` only after confirming your service honors it and its retention covers your recovery window. The default is false. A changed file/configuration creates new keys, so this is not business-level duplicate detection across changed files.
+**Idempotency is a service guarantee, not a property created by sending a header.** The application always supplies a stable `<run-id>:<request-number>` key by default. Set `ingestion.delivery.replay-safe=true` only after confirming your service honors it and its retention covers your recovery window. The default is false. A changed file/configuration creates new keys, so this is not business-level duplicate detection across changed files.
 
 When replay is safe, 408, 429, 5xx, and uncertain transport outcomes use bounded exponential backoff. Retries currently use the configured delay rather than `Retry-After`. Other non-acknowledged HTTP statuses are permanent rejections, except unconfigured 2xx statuses, which are uncertain. Redirects are not followed.
 
@@ -188,7 +204,7 @@ java -jar build/libs/fileadapter-0.1.0.jar --ingestion.resume=RUN_ID
 
 Acknowledged records are skipped. Resume uses the original endpoint, mapping, mode, and retry settings; the current bearer token is used so credentials can rotate. Unsafe uncertain deliveries remain paused, including explicit resume: reconcile them with the service before any deliberate replay. This version does not provide an operator reconciliation UI/command. Permanently rejected or invalid runs are not resumed; correct the input/configuration and submit a new run. Previously applied business records require the service's agreed upsert semantics.
 
-H2 is the durable ledger for this single-instance baseline. There are no cross-system transactions or exactly-once guarantees. API batches, grouping multiple rows into aggregates, asynchronous acknowledgement tracking, distributed processing, and a full schema validator are future extensions.
+H2 is the durable ledger for this single-instance baseline. There are no cross-system transactions or exactly-once guarantees. Consent rows can fan out into independently tracked provider/payer requests. API batches, grouping multiple rows into aggregates, asynchronous acknowledgement tracking, distributed processing, and a full schema validator are future extensions.
 
 ## Tests and architecture
 

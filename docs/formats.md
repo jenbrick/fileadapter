@@ -1,5 +1,9 @@
 # Input formats and runnable examples
 
+## CMS consent formats
+
+The [consent guide](consent.md#every-input-format) provides runnable examples for the supplied 30-field consent feed across all adapters. Headerless layouts preserve that order. Each format runs through the same consent planner and emits the same target-specific bodies. The employee layouts below remain generic examples.
+
 Every format emits `SourceRecord(number, JsonNode)`, then uses the same logical-field normalization, configurable nested mapping, validation, durable staging, and HTTP POST delivery. The sample feeds use the employee request shape in `examples/expected-requests.jsonl`.
 
 All profiles are active in `src/main/resources/application.yml`. YAML anchors share the employee mapping and output contract. Copy a mapping when a particular feed needs different business rules. Profiles are selected by filename; a one-shot command can override routing with `--ingestion.profile-id=...`.
@@ -40,7 +44,7 @@ Parser sources are under `src/main/java/com/jenbrick/fileadapter/source/`.
 
 ## Identify the source of a preview
 
-For `examples/enrollment.xml`, open `var/preview/<run-id>/enrollment.xml.preview.json`. The document has `previewVersion`, `mode`, a `source` object, and a `requests` array containing the actual mapped request bodies.
+For `examples/enrollment.xml`, open `var/preview/<run-id>/enrollment.xml.preview.json`. The document has `previewVersion`, `mode`, a `source` object, and a `requests` array containing the actual mapped request bodies, and `requestDetails` associating each body with its source record number (and consent target for consent profiles). Existing preview files are backfilled only when missing.
 
 The source object contains the original `fileName`, a readable `fileType` (CSV, PIPE_DELIMITED, TAB_DELIMITED, FIXED_WIDTH, XML, or JSON), the adapter `format`, `charset`, `profileId`, `runId`, `contentSha256`, and `requestCount`. Format-specific details identify headers/delimiters, fixed-width record length, XML record path, or JSON document mode.
 

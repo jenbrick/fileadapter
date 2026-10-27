@@ -1,13 +1,17 @@
 # Implemented architecture
 
+## CMS consent extension
+
+The [consent workflow](consent.md) adds member enrichment and zero/one/two-request fan-out after normalization. Generic employee profiles retain configurable mapping and validation. Consent rules live in the immutable profile snapshot; resolved member plans live in H2. Delivery never looks members up again after READY. Request numbers identify POSTs; source record numbers identify member rows. Provider and payer requests acknowledge independently. PREVIEW suppresses consent upserts but may perform read-only HTTP lookup; the explicit consent-demo profile uses synthetic fixtures instead.
+
 Editable Mermaid source: [architecture.mmd](architecture.mmd).
 
 ```mermaid
 flowchart TD
     subgraph Configuration["Configuration"]
-        PROFILE["Versioned profile: routing, layout, mapping, contract"]
+        PROFILE["Versioned profile: routing, layout and mapping or consent rules"]
         SETTINGS["Delivery settings and execution mode"]
-        SNAPSHOT["Immutable run snapshot; excludes bearer token"]
+        SNAPSHOT["Immutable run snapshot; excludes bearer tokens"]
         PROFILE --> SNAPSHOT
         SETTINGS --> SNAPSHOT
     end
@@ -32,16 +36,21 @@ flowchart TD
         XML --> SOURCE
         JSON --> SOURCE
         SOURCE --> NORMALIZE["Logical field and alias resolution"]
-        NORMALIZE --> MAP["Configurable nested mapping"]
+        NORMALIZE --> KIND{"Consent profile?"}
+        KIND -->|No| MAP["Configurable nested mapping"]
         EXTENSION["Named Java transforms"] --> MAP
         MAP --> VALIDATE["Required paths, types, nullability"]
+        KIND -->|Yes| CONSENT["Validate consent intents and coverage"]
+        CONSENT --> LOOKUP["Resolve owner, manager and consent GUIDs"]
+        LOOKUP --> PLAN["Freeze zero, one or two requests per member in H2"]
+        PLAN --> REQUESTS
         VALIDATE --> REQUESTS[("Durably staged requests")]
         REQUESTS --> READY["Mark ready only after all records validate"]
     end
 
     subgraph Execution["Execution"]
         READY --> MODE{"Preview or live?"}
-        MODE -->|Preview| JSONL["Publish named preview + source metadata + raw JSON Lines"]
+        MODE -->|Preview| JSONL["Named preview, source rows, targets and raw JSON Lines"]
         MODE -->|Live| SEND["Persist SENDING + POST using Jackson"]
         SEND --> API["Existing upsert API"]
         API --> OUTCOME{"Outcome"}
@@ -57,10 +66,13 @@ flowchart TD
         JSONL --> FINISH
     end
     VALIDATE -->|Invalid| ERROR
+    CONSENT -->|Invalid| ERROR
+    LOOKUP -->|Unresolved or failed| ERROR
     REGISTRY -->|Parse/unsupported format| ERROR
 
     LEDGER[("Local H2 processing ledger")]
     ID <--> LEDGER
+    PLAN --> LEDGER
     REQUESTS --> LEDGER
     SEND --> LEDGER
     ACK --> LEDGER

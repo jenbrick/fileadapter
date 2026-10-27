@@ -67,6 +67,18 @@ public class PreviewWriter {
                 after = request.number();
             }
             generator.writeEndArray();
+            generator.writeArrayFieldStart("requestDetails");
+            after = 0;
+            while ((request = ledger.next(run.id(), after)) != null) {
+                generator.writeStartObject();
+                generator.writeNumberField("requestNumber", request.number());
+                generator.writeNumberField("sourceRecordNumber", request.sourceRecord());
+                var target = json.readTree(request.payload()).get("consentTarget");
+                if (target != null) generator.writeStringField("consentTarget", target.asText());
+                generator.writeEndObject();
+                after = request.number();
+            }
+            generator.writeEndArray();
             generator.writeEndObject();
         }
         FileProcessor.atomicMove(pendingLines, lines);

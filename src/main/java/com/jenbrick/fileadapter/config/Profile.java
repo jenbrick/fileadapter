@@ -7,7 +7,15 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 /** Version this definition whenever the meaning of a feed changes. */
 public record Profile(String id, String filenamePattern, Layout layout,
-                      List<FieldMapping> mappings, List<ContractField> contract) {
+                      List<FieldMapping> mappings, List<ContractField> contract,
+                      @JsonInclude(JsonInclude.Include.NON_NULL)
+                      com.jenbrick.fileadapter.consent.ConsentSettings consent) {
+    @ConstructorBinding public Profile {}
+
+    public Profile(String id, String filenamePattern, Layout layout,
+                   List<FieldMapping> mappings, List<ContractField> contract) {
+        this(id, filenamePattern, layout, mappings, contract, null);
+    }
     public enum Format { DELIMITED, FIXED_WIDTH, XML, JSON }
     public enum HeaderMode { FIRST_RECORD, NONE }
     public enum BlankPolicy { OMIT, NULL, EMPTY, REJECT }

@@ -1,0 +1,152 @@
+[
+  {
+    "name": "EXTERNAL_CONTRACT_ID",
+    "offset": 0,
+    "length": 20
+  },
+  {
+    "name": "RELATIONSHIP_CODE",
+    "offset": 20,
+    "length": 12
+  },
+  {
+    "name": "LAST_NAME",
+    "offset": 32,
+    "length": 24
+  },
+  {
+    "name": "FIRST_NAME",
+    "offset": 56,
+    "length": 24
+  },
+  {
+    "name": "MIDDLE_NAME",
+    "offset": 80,
+    "length": 24
+  },
+  {
+    "name": "GENDER_CODE",
+    "offset": 104,
+    "length": 4
+  },
+  {
+    "name": "DATE_OF_BIRTH",
+    "offset": 108,
+    "length": 10
+  },
+  {
+    "name": "EXTERNAL_GROUP_ID",
+    "offset": 118,
+    "length": 20
+  },
+  {
+    "name": "PROVIDER_CLINICAL_CONSENT_EFFECTIVE_DATE",
+    "offset": 138,
+    "length": 10
+  },
+  {
+    "name": "PROVIDER_CLINICAL_CONSENT_PREFERENCE",
+    "offset": 148,
+    "length": 8
+  },
+  {
+    "name": "PAYER_CONSENT_PREFERENCE_EFFECTIVE_DATE",
+    "offset": 156,
+    "length": 10
+  },
+  {
+    "name": "PAYER_CONSENT_PREFERENCE",
+    "offset": 166,
+    "length": 8
+  },
+  {
+    "name": "PAYER_NAME",
+    "offset": 174,
+    "length": 40
+  },
+  {
+    "name": "PAYER_ADDRESS_1",
+    "offset": 214,
+    "length": 40
+  },
+  {
+    "name": "PAYER_ADDRESS_2",
+    "offset": 254,
+    "length": 40
+  },
+  {
+    "name": "PAYER_CITY",
+    "offset": 294,
+    "length": 24
+  },
+  {
+    "name": "PAYER_STATE",
+    "offset": 318,
+    "length": 2
+  },
+  {
+    "name": "PAYER_ZIP",
+    "offset": 320,
+    "length": 10
+  },
+  {
+    "name": "PAYER_ID",
+    "offset": 330,
+    "length": 20
+  },
+  {
+    "name": "PAYER_POLICY_ID",
+    "offset": 350,
+    "length": 24
+  },
+  {
+    "name": "PAYER_GROUP_NUMBER",
+    "offset": 374,
+    "length": 24
+  },
+  {
+    "name": "PAYER_SUBSCRIBER_LAST_NAME",
+    "offset": 398,
+    "length": 24
+  },
+  {
+    "name": "PAYER_SUBSCRIBER_FIRST_NAME",
+    "offset": 422,
+    "length": 24
+  },
+  {
+    "name": "PAYER_SUBSCRIBER_MIDDLE_NAME",
+    "offset": 446,
+    "length": 24
+  },
+  {
+    "name": "PAYER_DATE_OF_BIRTH",
+    "offset": 470,
+    "length": 10
+  },
+  {
+    "name": "PAYER_GENDER_CODE",
+    "offset": 480,
+    "length": 4
+  },
+  {
+    "name": "PAYER_EFFECTIVE_DATE",
+    "offset": 484,
+    "length": 10
+  },
+  {
+    "name": "PAYER_CANCEL_DATE",
+    "offset": 494,
+    "length": 10
+  },
+  {
+    "name": "PAYER_PLAN_TYPE",
+    "offset": 504,
+    "length": 20
+  },
+  {
+    "name": "PAYER_COVERAGE_TYPE",
+    "offset": 524,
+    "length": 20
+  }
+]

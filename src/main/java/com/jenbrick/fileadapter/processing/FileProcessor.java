@@ -36,6 +36,7 @@ public class FileProcessor {
     private final SourceNormalizer normalizer;
     private final RequestMapper mapper;
     private final RequestValidator validator;
+    private final com.jenbrick.fileadapter.consent.ConsentRequestPlanner consentPlanner;
     private final UpsertClient client;
     private final ProcessingLedger ledger;
     private final ObjectMapper json;
@@ -47,7 +48,8 @@ public class FileProcessor {
                          AdapterRegistry adapters, SourceNormalizer normalizer,
                          RequestMapper mapper, RequestValidator validator,
                          UpsertClient client, ProcessingLedger ledger, ObjectMapper json,
-                         MeterRegistry metrics, PreviewWriter previews) {
+                         MeterRegistry metrics, PreviewWriter previews,
+                         com.jenbrick.fileadapter.consent.ConsentRequestPlanner consentPlanner) {
         this.properties = properties;
         this.profiles = profiles;
         this.adapters = adapters;
@@ -59,6 +61,7 @@ public class FileProcessor {
         this.json = json;
         this.metrics = metrics;
         this.previews = previews;
+        this.consentPlanner = consentPlanner;
         this.work = properties.workDirectory().toAbsolutePath().normalize();
         validateDelivery(properties.delivery());
     }
@@ -69,7 +72,7 @@ public class FileProcessor {
             throw new IllegalArgumentException("Input must be a regular file, not a symbolic link");
         }
         var profile = profiles.resolve(input, profileId);
-        var snapshot = new RunSnapshot(1, profile, properties.mode(), properties.delivery());
+        var snapshot = new RunSnapshot(profile.consent() == null ? 1 : 2, profile, properties.mode(), properties.delivery());
         String config = json.writeValueAsString(snapshot);
         Files.createDirectories(work.resolve("processing"));
         Path temporary = Files.createTempFile(work.resolve("processing"), "staging-", ".tmp");
@@ -144,11 +147,12 @@ public class FileProcessor {
         if (run.status().equals("FAILED")) return false;
         if (run.status().equals("PAUSED") && !manual) return false;
         RunSnapshot snapshot = json.readValue(run.snapshot(), RunSnapshot.class);
-        if (snapshot.engineVersion() != 1) throw new IllegalStateException("Unsupported mapping engine version");
+        if (snapshot.engineVersion() != 1 && snapshot.engineVersion() != 2) throw new IllegalStateException("Unsupported mapping engine version");
         if (run.status().equals("FINALIZING")) return finish(run, snapshot);
 
         if (run.status().equals("STAGING")) {
             long[] currentRecord = {0};
+            long[] requestNumber = {0};
             try {
                 Path input = work.resolve("processing").resolve(id).resolve("input");
                 if (!hash(input).equals(run.contentHash())) {
@@ -161,16 +165,20 @@ public class FileProcessor {
                                 throw new IllegalArgumentException("Adapter record numbers must increase from one");
                             }
                             currentRecord[0] = source.number();
-                            var request = mapper.map(normalizer.normalize(source,
-                                    snapshot.profile().layout()), snapshot.profile());
-                            validator.validate(request, snapshot.profile());
-                            try {
-                                ledger.stage(id, source.number(), json.writeValueAsString(request));
-                            } catch (IOException e) {
-                                throw new IllegalStateException("Request serialization failed", e);
+                            var normalized = normalizer.normalize(source, snapshot.profile().layout());
+                            var requests = snapshot.profile().consent() == null
+                                    ? java.util.List.of(mapper.map(normalized, snapshot.profile()))
+                                    : consentPlanner.plan(id, normalized, snapshot.profile().consent(), snapshot.mode());
+                            for (var request : requests) {
+                                if (snapshot.profile().consent() == null) validator.validate(request, snapshot.profile());
+                                try {
+                                    ledger.stage(id, ++requestNumber[0], source.number(), json.writeValueAsString(request));
+                                } catch (IOException e) {
+                                    throw new IllegalStateException("Request serialization failed", e);
+                                }
                             }
                         });
-                if (ledger.count(id) == 0) throw new IllegalArgumentException("No data records");
+                if (currentRecord[0] == 0) throw new IllegalArgumentException("No data records");
                 ledger.status(id, "READY", null);
             } catch (Exception e) {
                 // Parser and conversion exceptions can contain raw source data; keep reports value-free.
@@ -276,8 +284,19 @@ public class FileProcessor {
     private void report(String id, String category, long record, String reason) throws IOException {
         Path directory = work.resolve("errors").resolve(id);
         Files.createDirectories(directory);
-        json.writerWithDefaultPrettyPrinter().writeValue(directory.resolve("error.json").toFile(),
-                Map.of("runId", id, "category", category, "recordNumber", record, "reason", reason));
+        var report = json.createObjectNode();
+        report.put("runId", id); report.put("category", category);
+        report.put("recordNumber", record); report.put("reason", reason);
+        if (category.equals("PREFLIGHT")) {
+            report.put("sourceRecordNumber", record);
+        } else {
+            report.put("requestNumber", record);
+            var request = ledger.next(id, record - 1);
+            if (request != null && request.number() == record) {
+                report.put("sourceRecordNumber", request.sourceRecord());
+            }
+        }
+        json.writerWithDefaultPrettyPrinter().writeValue(directory.resolve("error.json").toFile(), report);
     }
 
     public void rejectIntake(Path input, Exception error) throws IOException {
