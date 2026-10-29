@@ -35,6 +35,7 @@ public class FileProcessor {
     private final AdapterRegistry adapters;
     private final SourceNormalizer normalizer;
     private final RequestMapper mapper;
+    private final com.jenbrick.fileadapter.projection.ProjectionEngine projections;
     private final RequestValidator validator;
     private final com.jenbrick.fileadapter.consent.ConsentRequestPlanner consentPlanner;
     private final UpsertClient client;
@@ -49,12 +50,14 @@ public class FileProcessor {
                          RequestMapper mapper, RequestValidator validator,
                          UpsertClient client, ProcessingLedger ledger, ObjectMapper json,
                          MeterRegistry metrics, PreviewWriter previews,
-                         com.jenbrick.fileadapter.consent.ConsentRequestPlanner consentPlanner) {
+                         com.jenbrick.fileadapter.consent.ConsentRequestPlanner consentPlanner,
+                         com.jenbrick.fileadapter.projection.ProjectionEngine projections) {
         this.properties = properties;
         this.profiles = profiles;
         this.adapters = adapters;
         this.normalizer = normalizer;
         this.mapper = mapper;
+        this.projections = projections;
         this.validator = validator;
         this.client = client;
         this.ledger = ledger;
@@ -72,7 +75,7 @@ public class FileProcessor {
             throw new IllegalArgumentException("Input must be a regular file, not a symbolic link");
         }
         var profile = profiles.resolve(input, profileId);
-        var snapshot = new RunSnapshot(profile.consent() == null ? 1 : 3, profile, properties.mode(), properties.delivery());
+        var snapshot = new RunSnapshot(profile.projection() != null ? 4 : profile.consent() == null ? 1 : 3, profile, properties.mode(), properties.delivery());
         String config = json.writeValueAsString(snapshot);
         Files.createDirectories(work.resolve("processing"));
         Path temporary = Files.createTempFile(work.resolve("processing"), "staging-", ".tmp");
@@ -147,7 +150,7 @@ public class FileProcessor {
         if (run.status().equals("FAILED")) return false;
         if (run.status().equals("PAUSED") && !manual) return false;
         RunSnapshot snapshot = json.readValue(run.snapshot(), RunSnapshot.class);
-        if (snapshot.engineVersion() < 1 || snapshot.engineVersion() > 3) throw new IllegalStateException("Unsupported mapping engine version");
+        if (snapshot.engineVersion() < 1 || snapshot.engineVersion() > 4) throw new IllegalStateException("Unsupported mapping engine version");
         if (run.status().equals("FINALIZING")) return finish(run, snapshot);
         if (snapshot.engineVersion() == 2 && snapshot.profile().consent() != null
                 && snapshot.mode() == IngestionProperties.Mode.LIVE) {
@@ -158,6 +161,7 @@ public class FileProcessor {
         if (run.status().equals("STAGING")) {
             long[] currentRecord = {0};
             long[] requestNumber = {0};
+            var projectionRows = new java.util.ArrayList<com.jenbrick.fileadapter.source.SourceRecord>();
             try {
                 Path input = work.resolve("processing").resolve(id).resolve("input");
                 if (!hash(input).equals(run.contentHash())) {
@@ -171,6 +175,12 @@ public class FileProcessor {
                             }
                             currentRecord[0] = source.number();
                             var normalized = normalizer.normalize(source, snapshot.profile().layout());
+                            if (snapshot.profile().projection() != null) {
+                                if (projectionRows.size() >= snapshot.profile().projection().maxRecords())
+                                    throw new RecordFailure("Projection record limit exceeded");
+                                projectionRows.add(projections.enrich(id,normalized,snapshot.profile(),snapshot.mode()));
+                                return;
+                            }
                             var requests = snapshot.profile().consent() == null
                                     ? java.util.List.of(mapper.map(normalized, snapshot.profile()))
                                     : consentPlanner.plan(id, normalized, snapshot.profile().consent(), snapshot.mode(),
@@ -190,6 +200,11 @@ public class FileProcessor {
                             }
                         });
                 if (currentRecord[0] == 0) throw new IllegalArgumentException("No data records");
+                if (snapshot.profile().projection() != null) {
+                    for (var request : projections.project(projectionRows,snapshot.profile().projection())) {
+                        ledger.stage(id,++requestNumber[0],request.sourceRecords(),json.writeValueAsString(request.body()));
+                    }
+                }
                 ledger.status(id, "READY", null);
             } catch (Exception e) {
                 // Parser and conversion exceptions can contain raw source data; keep reports value-free.
@@ -304,7 +319,10 @@ public class FileProcessor {
             report.put("requestNumber", record);
             var request = ledger.next(id, record - 1);
             if (request != null && request.number() == record) {
-                report.put("sourceRecordNumber", request.sourceRecord());
+                var origins = request.sourceRecords() == null ? json.createArrayNode().add(request.sourceRecord())
+                        : json.readTree(request.sourceRecords());
+                if (origins.size() == 1) report.put("sourceRecordNumber", request.sourceRecord());
+                else report.set("sourceRecordNumbers", origins);
             }
         }
         json.writerWithDefaultPrettyPrinter().writeValue(directory.resolve("error.json").toFile(), report);

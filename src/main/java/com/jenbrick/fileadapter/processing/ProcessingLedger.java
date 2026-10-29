@@ -10,7 +10,11 @@ public class ProcessingLedger {
 
     public record Run(String id, String filename, String contentHash, String snapshot,
                       String status, String error) {}
-    public record Request(long number, String payload, String status, int attempts, long sourceRecord) {}
+    public record Request(long number, String payload, String status, int attempts, long sourceRecord, String sourceRecords) {
+        public Request(long number,String payload,String status,int attempts,long sourceRecord) {
+            this(number,payload,status,attempts,sourceRecord,null);
+        }
+    }
 
     public ProcessingLedger(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -30,6 +34,7 @@ public class ProcessingLedger {
                   FOREIGN KEY(run_id) REFERENCES ingestion_run(id))
                 """);
         jdbc.execute("ALTER TABLE ingestion_request ADD COLUMN IF NOT EXISTS source_record BIGINT");
+        jdbc.execute("ALTER TABLE ingestion_request ADD COLUMN IF NOT EXISTS source_records CLOB");
     }
 
     public void create(String id, String filename, String contentHash, String snapshot) {
@@ -70,15 +75,20 @@ public class ProcessingLedger {
     }
 
     public void stage(String id, long record, long sourceRecord, String payload) {
-        jdbc.update("INSERT INTO ingestion_request(run_id,record_number,payload,status,source_record) VALUES(?,?,?,?,?)",
-                id, record, payload, "PENDING", sourceRecord);
+        stage(id,record,List.of(sourceRecord),payload);
+    }
+
+    public void stage(String id,long record,List<Long> sourceRecords,String payload) {
+        if(sourceRecords.isEmpty()) throw new IllegalArgumentException("Request needs source provenance");
+        jdbc.update("INSERT INTO ingestion_request(run_id,record_number,payload,status,source_record,source_records) VALUES(?,?,?,?,?,?)",
+                id,record,payload,"PENDING",sourceRecords.get(0),sourceRecords.toString());
     }
 
     public Request next(String id, long after) {
         var rows = jdbc.query("""
-                SELECT record_number,payload,status,attempts,COALESCE(source_record,record_number) FROM ingestion_request
+                SELECT record_number,payload,status,attempts,COALESCE(source_record,record_number),source_records FROM ingestion_request
                 WHERE run_id=? AND record_number>? ORDER BY record_number LIMIT 1
-                """, (rs, n) -> new Request(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getInt(4), rs.getLong(5)), id, after);
+                """, (rs, n) -> new Request(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getInt(4), rs.getLong(5), rs.getString(6)), id, after);
         return rows.isEmpty() ? null : rows.get(0);
     }
 

@@ -9,12 +9,19 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
 public record Profile(String id, String filenamePattern, Layout layout,
                       List<FieldMapping> mappings, List<ContractField> contract,
                       @JsonInclude(JsonInclude.Include.NON_NULL)
-                      com.jenbrick.fileadapter.consent.ConsentSettings consent) {
+                      com.jenbrick.fileadapter.consent.ConsentSettings consent,
+                      @JsonInclude(JsonInclude.Include.NON_NULL)
+                      com.jenbrick.fileadapter.projection.Projection projection) {
     @ConstructorBinding public Profile {}
 
     public Profile(String id, String filenamePattern, Layout layout,
                    List<FieldMapping> mappings, List<ContractField> contract) {
-        this(id, filenamePattern, layout, mappings, contract, null);
+        this(id, filenamePattern, layout, mappings, contract, null, null);
+    }
+    public Profile(String id, String filenamePattern, Layout layout,
+                   List<FieldMapping> mappings, List<ContractField> contract,
+                   com.jenbrick.fileadapter.consent.ConsentSettings consent) {
+        this(id, filenamePattern, layout, mappings, contract, consent, null);
     }
     public enum Format { DELIMITED, FIXED_WIDTH, XML, JSON }
     public enum HeaderMode { FIRST_RECORD, NONE }

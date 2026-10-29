@@ -11,7 +11,8 @@ import org.springframework.stereotype.Component;
 public class ProfileCatalog {
     private final IngestionProperties properties;
 
-    public ProfileCatalog(IngestionProperties properties, TransformRegistry transforms) {
+    public ProfileCatalog(IngestionProperties properties, TransformRegistry transforms,
+                          com.jenbrick.fileadapter.projection.ProjectionEngine projections) {
         this.properties = properties;
         var ids = new HashSet<String>();
         if (properties.profiles() == null || properties.profiles().isEmpty()) {
@@ -23,6 +24,12 @@ public class ProfileCatalog {
             }
             matcher(profile.filenamePattern());
             LayoutValidator.validate(profile.layout());
+            if (profile.projection() != null) {
+                try { projections.validate(profile.projection()); }
+                catch (IllegalArgumentException e) { throw new IllegalArgumentException("Invalid projection " + profile.id() + ": " + e.getMessage(),e); }
+                projections.validateEnrichers(profile);
+                continue;
+            }
             if (profile.consent() != null) {
                 profile.consent().validate();
                 continue;

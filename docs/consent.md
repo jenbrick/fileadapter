@@ -1,5 +1,7 @@
 # CMS Interop consent ingestion
 
+> Historical specialized example (engine version 3). The current adapter POC uses [configurable projections](flexible-mappings.md) to reproduce the October 29 sample and demonstrate changing JSON structures. The per-row array rules below describe only the retained older example.
+
 For the team code tour and runnable demonstrations, start with the [developer walkthrough](developer-walkthrough.md).
 
 This is the implemented consent POC based on the supplied file fields and sample upsert objects. It does not claim to implement a published CMS file specification. The company's member lookup protocol and final consent API schema still need confirmation.

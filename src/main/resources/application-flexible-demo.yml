@@ -1,0 +1,652 @@
+# Generic JSON projection POC. The consent domain is configuration plus an optional enricher.
+ingestion:
+  poll-enabled: false
+  mode: PREVIEW
+  work-directory: ./var-flexible-demo
+  profiles:
+    - id: flexible-csv-v1
+      filename-pattern: flexible*.csv
+      layout:
+        charset: UTF-8
+        format: DELIMITED
+        delimiter: ','
+        header-mode: FIRST_RECORD
+      consent: &memberLookup
+        version: flexible-lookup-v1
+        provider-target: PCDS
+        payer-target: P2PDS
+        preferences:
+          GRANT: GRANT
+          RVOKE: RVOKE
+        relationships:
+          SELF: SELF
+          SPOUSE: SPOUSE
+          DEPENDENT: DEPENDENT
+          OTHER: OTHER
+        date-pattern: uuuu-MM-dd
+        source-system: MDB
+        source-transaction-identifier: fileadapter
+        lookup:
+          mode: ${FLEXIBLE_LOOKUP_MODE:FIXTURE}
+          endpoint: ${CONSENT_LOOKUP_URL:http://127.0.0.1:8082/members/resolve}
+          connect-timeout: 5s
+          read-timeout: 10s
+          fixtures:
+          - match:
+              EXTERNAL_CONTRACT_ID: EXTERNAL-001
+            result:
+              owner:
+                contract: '123456789'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-001
+              manager:
+                contract: '123456789'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-001
+              providerConsentGuid: null
+              payerConsentGuid: null
+          - match:
+              EXTERNAL_CONTRACT_ID: EXTERNAL-002
+            result:
+              owner:
+                contract: '123456789'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-002
+              manager:
+                contract: '123456789'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-002
+              providerConsentGuid: null
+              payerConsentGuid: null
+      projection: &consentProjection
+        version: flexible-consents-v1
+        scope: FILE
+        max-records: 1000
+        enrichers:
+        - consent-member
+        input-contract:
+        - path: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+          type: STRING
+          required: true
+          nullable: true
+        - path: PAYER_CONSENT_PREFERENCE
+          type: STRING
+          required: true
+          nullable: true
+        skip-when-empty: consents
+        root:
+          object:
+            consents: &consentArray
+              array:
+              - where:
+                  source: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+                  present: true
+                group-by:
+                - resolved.owner.contractMemberGuid
+                item:
+                  object:
+                    consentGuid:
+                      source: resolved.providerConsentGuid
+                      default-json: 'null'
+                    consentTarget:
+                      literal-json: '"PCDS"'
+                    consentStatus:
+                      source: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+                      required: true
+                      transforms:
+                      - trim
+                      - uppercase
+                      values:
+                        GRANT: GRANT
+                        RVOKE: RVOKE
+                    consentOwner:
+                      source: resolved.owner
+                      required: true
+                    effectiveDate:
+                      source: PROVIDER_CLINICAL_CONSENT_EFFECTIVE_DATE
+                      required: true
+                      transforms:
+                      - trim
+                      - iso-date
+                    effectiveEndDate:
+                      literal-json: 'null'
+                    coverage:
+                      literal-json: '[]'
+                    transactionDetails:
+                      object:
+                        sourceSystem:
+                          source: PROVIDER_SOURCE_SYSTEM
+                          required: true
+                          transforms:
+                          - trim
+                          default-value: MDB
+                        sourceDateTime:
+                          source: SOURCE_DATETIME
+                          required: true
+                          transforms:
+                          - trim
+                        sourceTransactionIdentifier:
+                          source: SOURCE_USER
+                          required: true
+                          transforms:
+                          - trim
+                          default-value: fileadapter
+                    consentManager:
+                      source: resolved.manager
+                      required: true
+              - where:
+                  source: PAYER_CONSENT_PREFERENCE
+                  present: true
+                group-by:
+                - resolved.owner.contractMemberGuid
+                item:
+                  object:
+                    consentGuid:
+                      source: resolved.payerConsentGuid
+                      default-json: 'null'
+                    consentTarget:
+                      literal-json: '"P2PDS"'
+                    consentStatus:
+                      source: PAYER_CONSENT_PREFERENCE
+                      required: true
+                      transforms:
+                      - trim
+                      - uppercase
+                      values:
+                        GRANT: GRANT
+                        RVOKE: RVOKE
+                    consentOwner:
+                      source: resolved.owner
+                      required: true
+                    effectiveDate:
+                      source: PAYER_CONSENT_PREFERENCE_EFFECTIVE_DATE
+                      required: true
+                      transforms:
+                      - trim
+                      - iso-date
+                    effectiveEndDate:
+                      literal-json: 'null'
+                    coverage:
+                      array:
+                      - where:
+                          any-present:
+                          - PAYER_ID
+                          - PAYER_POLICY_ID
+                          - PAYER_GROUP_NUMBER
+                          - PAYER_SUBSCRIBER_FIRST_NAME
+                          - PAYER_SUBSCRIBER_LAST_NAME
+                          - PAYER_SUBSCRIBER_MIDDLE_NAME
+                          - PAYER_GENDER_CODE
+                          - PAYER_DATE_OF_BIRTH
+                        group-by:
+                        - PAYER_ID
+                        - PAYER_POLICY_ID
+                        item:
+                          object:
+                            payerId:
+                              source: PAYER_ID
+                              required: true
+                              transforms:
+                              - trim
+                            otherPayerMemberId:
+                              source: PAYER_POLICY_ID
+                              required: true
+                              transforms:
+                              - trim
+                            groupNumber:
+                              source: PAYER_GROUP_NUMBER
+                              transforms:
+                              - trim
+                              blank-policy: 'NULL'
+                            policyHolderFirstName:
+                              source: PAYER_SUBSCRIBER_FIRST_NAME
+                              transforms:
+                              - trim
+                              blank-policy: 'NULL'
+                            policyHolderMiddleName:
+                              source: PAYER_SUBSCRIBER_MIDDLE_NAME
+                              transforms:
+                              - trim
+                              blank-policy: 'NULL'
+                            policyHolderLastName:
+                              source: PAYER_SUBSCRIBER_LAST_NAME
+                              transforms:
+                              - trim
+                              blank-policy: 'NULL'
+                            policyHolderGender:
+                              source: PAYER_GENDER_CODE
+                              transforms:
+                              - trim
+                              - uppercase
+                              blank-policy: 'NULL'
+                            policyHolderDateOfBirth:
+                              source: PAYER_DATE_OF_BIRTH
+                              required: true
+                              transforms:
+                              - trim
+                              - iso-date
+                            relationshipToPolicyHolder:
+                              source: RELATIONSHIP_CODE
+                              required: true
+                              transforms:
+                              - trim
+                              - uppercase
+                              values:
+                                SELF: SELF
+                                SPOUSE: SPOUSE
+                                DEPENDENT: DEPENDENT
+                                OTHER: OTHER
+                    transactionDetails:
+                      object:
+                        sourceSystem:
+                          source: PAYER_SOURCE_SYSTEM
+                          required: true
+                          transforms:
+                          - trim
+                          default-value: MDB
+                        sourceDateTime:
+                          source: SOURCE_DATETIME
+                          required: true
+                          transforms:
+                          - trim
+                        sourceTransactionIdentifier:
+                          source: SOURCE_USER
+                          required: true
+                          transforms:
+                          - trim
+                          default-value: fileadapter
+                    consentManager:
+                      source: resolved.manager
+                      required: true
+    - id: flexible-pipe-v1
+      filename-pattern: flexible*.psv
+      layout:
+        charset: UTF-8
+        format: DELIMITED
+        delimiter: '|'
+        header-mode: FIRST_RECORD
+      consent: *memberLookup
+      projection: *consentProjection
+    - id: flexible-xml-v1
+      filename-pattern: flexible*.xml
+      layout:
+        charset: UTF-8
+        format: XML
+        xml:
+          record-path: /members/member
+      consent: *memberLookup
+      projection: *consentProjection
+    - id: flexible-json-v1
+      filename-pattern: flexible*.json
+      layout:
+        charset: UTF-8
+        format: JSON
+        json:
+          mode: ARRAY
+      consent: *memberLookup
+      projection: *consentProjection
+    - id: flexible-fixed-v1
+      filename-pattern: flexible*.fw
+      layout:
+        charset: UTF-8
+        format: FIXED_WIDTH
+        header-mode: NONE
+        fixed-width:
+          record-length: 1088
+          columns:
+          - name: EXTERNAL_CONTRACT_ID
+            offset: 0
+            length: 32
+          - name: RELATIONSHIP_CODE
+            offset: 32
+            length: 32
+          - name: LAST_NAME
+            offset: 64
+            length: 32
+          - name: FIRST_NAME
+            offset: 96
+            length: 32
+          - name: MIDDLE_NAME
+            offset: 128
+            length: 32
+          - name: GENDER_CODE
+            offset: 160
+            length: 32
+          - name: DATE_OF_BIRTH
+            offset: 192
+            length: 32
+          - name: EXTERNAL_GROUP_ID
+            offset: 224
+            length: 32
+          - name: PROVIDER_CLINICAL_CONSENT_EFFECTIVE_DATE
+            offset: 256
+            length: 32
+          - name: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+            offset: 288
+            length: 32
+          - name: PAYER_CONSENT_PREFERENCE_EFFECTIVE_DATE
+            offset: 320
+            length: 32
+          - name: PAYER_CONSENT_PREFERENCE
+            offset: 352
+            length: 32
+          - name: PAYER_NAME
+            offset: 384
+            length: 32
+          - name: PAYER_ADDRESS_1
+            offset: 416
+            length: 32
+          - name: PAYER_ADDRESS_2
+            offset: 448
+            length: 32
+          - name: PAYER_CITY
+            offset: 480
+            length: 32
+          - name: PAYER_STATE
+            offset: 512
+            length: 32
+          - name: PAYER_ZIP
+            offset: 544
+            length: 32
+          - name: PAYER_ID
+            offset: 576
+            length: 32
+          - name: PAYER_POLICY_ID
+            offset: 608
+            length: 32
+          - name: PAYER_GROUP_NUMBER
+            offset: 640
+            length: 32
+          - name: PAYER_SUBSCRIBER_LAST_NAME
+            offset: 672
+            length: 32
+          - name: PAYER_SUBSCRIBER_FIRST_NAME
+            offset: 704
+            length: 32
+          - name: PAYER_SUBSCRIBER_MIDDLE_NAME
+            offset: 736
+            length: 32
+          - name: PAYER_DATE_OF_BIRTH
+            offset: 768
+            length: 32
+          - name: PAYER_GENDER_CODE
+            offset: 800
+            length: 32
+          - name: PAYER_EFFECTIVE_DATE
+            offset: 832
+            length: 32
+          - name: PAYER_CANCEL_DATE
+            offset: 864
+            length: 32
+          - name: PAYER_PLAN_TYPE
+            offset: 896
+            length: 32
+          - name: PAYER_COVERAGE_TYPE
+            offset: 928
+            length: 32
+          - name: PROVIDER_SOURCE_SYSTEM
+            offset: 960
+            length: 32
+          - name: PAYER_SOURCE_SYSTEM
+            offset: 992
+            length: 32
+          - name: SOURCE_DATETIME
+            offset: 1024
+            length: 32
+          - name: SOURCE_USER
+            offset: 1056
+            length: 32
+      consent: *memberLookup
+      projection: *consentProjection
+    - id: flexible-root-array-v1
+      filename-pattern: variant-root-array.unused
+      layout:
+        charset: UTF-8
+        format: DELIMITED
+        delimiter: ','
+        header-mode: FIRST_RECORD
+      consent: *memberLookup
+      projection:
+        <<: *consentProjection
+        version: flexible-root-array-v1
+        skip-when-empty: "$"
+        root: *consentArray
+    - id: flexible-reshaped-v1
+      filename-pattern: variant-reshaped.unused
+      layout:
+        charset: UTF-8
+        format: DELIMITED
+        delimiter: ','
+        header-mode: FIRST_RECORD
+      consent: *memberLookup
+      projection:
+        version: flexible-reshaped-v1
+        scope: FILE
+        max-records: 1000
+        enrichers:
+        - consent-member
+        input-contract:
+        - path: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+          type: STRING
+          required: true
+          nullable: true
+        - path: PAYER_CONSENT_PREFERENCE
+          type: STRING
+          required: true
+          nullable: true
+        skip-when-empty: payload.entries
+        root:
+          object:
+            payload:
+              object:
+                entries:
+                  array:
+                  - where:
+                      source: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+                      present: true
+                    group-by:
+                    - resolved.owner.contractMemberGuid
+                    item:
+                      object:
+                        consentGuid:
+                          source: resolved.providerConsentGuid
+                          default-json: 'null'
+                        consentTarget:
+                          literal-json: '"PCDS"'
+                        consentStatus:
+                          source: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+                          required: true
+                          transforms:
+                          - trim
+                          - uppercase
+                          values:
+                            GRANT: GRANT
+                            RVOKE: RVOKE
+                        consentOwner:
+                          source: resolved.owner
+                          required: true
+                        effectiveDate:
+                          source: PROVIDER_CLINICAL_CONSENT_EFFECTIVE_DATE
+                          required: true
+                          transforms:
+                          - trim
+                          - iso-date
+                        effectiveEndDate:
+                          literal-json: 'null'
+                        transactionDetails:
+                          object:
+                            sourceSystem:
+                              source: PROVIDER_SOURCE_SYSTEM
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: MDB
+                            sourceDateTime:
+                              source: SOURCE_DATETIME
+                              required: true
+                              transforms:
+                              - trim
+                            sourceTransactionIdentifier:
+                              source: SOURCE_USER
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: fileadapter
+                            consentManager:
+                              source: resolved.manager
+                              required: true
+                        payerInfo:
+                          object:
+                            coverages:
+                              literal-json: '[]'
+                  - where:
+                      source: PAYER_CONSENT_PREFERENCE
+                      present: true
+                    group-by:
+                    - resolved.owner.contractMemberGuid
+                    item:
+                      object:
+                        consentGuid:
+                          source: resolved.payerConsentGuid
+                          default-json: 'null'
+                        consentTarget:
+                          literal-json: '"P2PDS"'
+                        consentStatus:
+                          source: PAYER_CONSENT_PREFERENCE
+                          required: true
+                          transforms:
+                          - trim
+                          - uppercase
+                          values:
+                            GRANT: GRANT
+                            RVOKE: RVOKE
+                        consentOwner:
+                          source: resolved.owner
+                          required: true
+                        effectiveDate:
+                          source: PAYER_CONSENT_PREFERENCE_EFFECTIVE_DATE
+                          required: true
+                          transforms:
+                          - trim
+                          - iso-date
+                        effectiveEndDate:
+                          literal-json: 'null'
+                        transactionDetails:
+                          object:
+                            sourceSystem:
+                              source: PAYER_SOURCE_SYSTEM
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: MDB
+                            sourceDateTime:
+                              source: SOURCE_DATETIME
+                              required: true
+                              transforms:
+                              - trim
+                            sourceTransactionIdentifier:
+                              source: SOURCE_USER
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: fileadapter
+                            consentManager:
+                              source: resolved.manager
+                              required: true
+                        payerInfo:
+                          object:
+                            coverages:
+                              array:
+                              - where:
+                                  any-present:
+                                  - PAYER_ID
+                                  - PAYER_POLICY_ID
+                                  - PAYER_GROUP_NUMBER
+                                  - PAYER_SUBSCRIBER_FIRST_NAME
+                                  - PAYER_SUBSCRIBER_LAST_NAME
+                                  - PAYER_SUBSCRIBER_MIDDLE_NAME
+                                  - PAYER_GENDER_CODE
+                                  - PAYER_DATE_OF_BIRTH
+                                group-by:
+                                - PAYER_ID
+                                - PAYER_POLICY_ID
+                                item:
+                                  object:
+                                    payerId:
+                                      source: PAYER_ID
+                                      required: true
+                                      transforms:
+                                      - trim
+                                    otherPayerMemberId:
+                                      source: PAYER_POLICY_ID
+                                      required: true
+                                      transforms:
+                                      - trim
+                                    groupNumber:
+                                      source: PAYER_GROUP_NUMBER
+                                      transforms:
+                                      - trim
+                                      blank-policy: 'NULL'
+                                    policyHolderFirstName:
+                                      source: PAYER_SUBSCRIBER_FIRST_NAME
+                                      transforms:
+                                      - trim
+                                      blank-policy: 'NULL'
+                                    policyHolderMiddleName:
+                                      source: PAYER_SUBSCRIBER_MIDDLE_NAME
+                                      transforms:
+                                      - trim
+                                      blank-policy: 'NULL'
+                                    policyHolderLastName:
+                                      source: PAYER_SUBSCRIBER_LAST_NAME
+                                      transforms:
+                                      - trim
+                                      blank-policy: 'NULL'
+                                    policyHolderGender:
+                                      source: PAYER_GENDER_CODE
+                                      transforms:
+                                      - trim
+                                      - uppercase
+                                      blank-policy: 'NULL'
+                                    policyHolderDateOfBirth:
+                                      source: PAYER_DATE_OF_BIRTH
+                                      required: true
+                                      transforms:
+                                      - trim
+                                      - iso-date
+                                    relationshipToPolicyHolder:
+                                      source: RELATIONSHIP_CODE
+                                      required: true
+                                      transforms:
+                                      - trim
+                                      - uppercase
+                                      values:
+                                        SELF: SELF
+                                        SPOUSE: SPOUSE
+                                        DEPENDENT: DEPENDENT
+                                        OTHER: OTHER
+    - id: flexible-record-v1
+      filename-pattern: variant-record.unused
+      layout:
+        charset: UTF-8
+        format: DELIMITED
+        delimiter: ','
+        header-mode: FIRST_RECORD
+      projection:
+        version: row-example-v1
+        scope: RECORD
+        max-records: 1000
+        root:
+          object:
+            person:
+              object:
+                firstName:
+                  source: FIRST_NAME
+                  required: true
+                  transforms:
+                  - trim
+                lastName:
+                  source: LAST_NAME
+                  required: true
+                  transforms:
+                  - trim

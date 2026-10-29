@@ -9,7 +9,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class RequestValidator {
     public void validate(JsonNode request, Profile profile) {
-        for (var rule : profile.contract()) {
+        validateFields(request, profile.contract());
+    }
+
+    public void validateFields(JsonNode request, java.util.List<Profile.ContractField> rules) {
+        if (rules == null) return;
+        for (var rule : rules) {
             JsonNode value = JsonPaths.get(request, rule.path());
             if (value.isMissingNode()) {
                 if (rule.required()) fail(rule.path(), "is missing");

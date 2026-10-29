@@ -6,3 +6,4 @@ gradlew.bat text eol=crlf
 *.gradle text eol=lf
 *.md text eol=lf
 *.pptx binary
+*.fw whitespace=-blank-at-eol

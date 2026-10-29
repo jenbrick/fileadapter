@@ -1,300 +1,103 @@
-# CMS consent file adapter: developer walkthrough
+# FileAdapter: developer walkthrough
 
-This is the primary walkthrough for the development team. It explains the implemented application, shows where to change it, and provides a meeting/demo sequence. Keep this document current with the code. The [consent reference](consent.md) contains the complete 30-field disposition and integration assumptions; the [PowerPoint](presentations/File_Adapter_POC_Developer_Walkthrough.pptx) remains a presentation snapshot.
+This is a proof of concept for the adapter pattern and flexible file-to-JSON mapping. The latest consent sample is the worked example, not a schema embedded in the generic processing engine.
 
-The application uses Java 17, Spring Boot, Gradle, Jackson and a local H2 processing ledger. It runs as a non-web worker. The current consent request model is **one POST per member row with populated preferences**, whose body is an array containing provider consent, payer consent, or both. There is at most one entry per consent target in that array. A row with both preferences blank produces no POST.
+Start with [flexible-mappings.md](flexible-mappings.md) for the complete configuration vocabulary and runnable variants. The [working YAML](../src/main/resources/application-flexible-demo.yml) is the primary mapping example. The older specialized consent implementation and PowerPoint are historical compatibility examples.
 
-## Suggested team session
+## 1. Four responsibilities
 
-Allow about 45–60 minutes, including demos and discussion:
-
-1. Establish the member-row and request-array model.
-2. Follow intake, parsing, normalization, enrichment and assembly through the code.
-3. Run the CSV fixture preview and inspect the output.
-4. Repeat with another file format to show what the adapters isolate.
-5. Exercise HTTP lookup, delivery and whole-array recovery against the local mock.
-6. Agree on the remaining source, lookup and consent-service contracts.
-
-## 1. The member row and the POST boundary
-
-The input has 30 fields covering member identity, two consent preferences and their dates, and payer/subscriber information. Physical format does not determine business behavior: CSV, pipe, fixed width, XML and JSON feed the same planner.
-
-| Provider preference | Payer preference | One row produces |
+| Responsibility | Extension or configuration | Owns |
 | --- | --- | --- |
-| GRANT or RVOKE | Blank/null | One POST array with a PCDS entry |
-| Blank/null | GRANT or RVOKE | One POST array with a P2PDS entry |
-| GRANT or RVOKE | GRANT or RVOKE | One POST array with PCDS and P2PDS entries |
-| Blank/null | Blank/null | No lookup and no POST |
+| File syntax | `FileFormatAdapter` | Reading CSV, pipe, fixed width, XML or JSON into records |
+| Business enrichment | Named `RecordEnricher` | Read-only lookup and calculated values |
+| JSON shape | `ProjectionEngine` plus profile templates | Fields, nesting, literals, filtered/grouped arrays and request scope |
+| Delivery/recovery | `FileProcessor`, ledger and `UpsertClient` | Durable staging, HTTP, acknowledgement and replay policy |
 
-A missing preference field is a layout error. A present blank/null preference means no change in this POC. Unknown populated preference codes fail validation. The example maps GRANT and RVOKE explicitly after trimming and normalizing case.
-
-Provider precedes payer when both are included. The payer entry uses either the general shape or the coverage-specific shape. Those are alternatives: the application does not generate two P2PDS entries for one row.
-
-When the feed supplies both preferences, both entries are included even if one matches the existing service state. The application does not infer which value changed. A feed that always supplies both values but intends only one change needs an agreed change indicator or comparison rule.
-
-## 2. End-to-end flow
+A new CSV header does not require an HTTP change. Moving `consentManager` does not require a parser change. A different lookup API belongs in an enricher rather than a file adapter. Another domain can use the same engine without any consent plugin.
 
 ```mermaid
 flowchart TD
-    Input["LAN file with ready marker or CLI input"] --> Parse["Select profile, parse and normalize"]
-    Parse --> Intent{"Consent preferences populated?"}
-    Intent -->|No| Empty["Save empty member plan"]
-    Intent -->|Yes| Validate["Validate intent, dates and coverage"]
-    Validate --> Resolve["Resolve owner, manager and consent GUIDs"]
-    Resolve --> Plan["Freeze member consent entries"]
-    Plan --> Stage["Stage one array request per populated row"]
-    Empty --> Ready["Entire file passes preflight"]
-    Stage --> Ready
-    Ready --> Mode{"Execution mode"}
-    Mode -->|PREVIEW| Preview["Write named preview and raw array JSON Lines"]
-    Mode -->|LIVE| Post["POST member arrays and track acknowledgement"]
-    Preview --> Archive["Archive source and complete run"]
-    Post --> Archive
+    Input["File and layout profile"] --> Adapter["FileFormatAdapter"]
+    Adapter --> Normalize["SourceNormalizer"]
+    Normalize --> Enrich["Optional named RecordEnricher"]
+    Enrich --> Saved["Freeze enriched source rows in H2"]
+    Saved --> Project["Configured object and collection projection"]
+    Project --> Stage["Stage complete JSON requests with source provenance"]
+    Stage --> Mode{"PREVIEW or LIVE"}
+    Mode --> Preview["Named preview plus raw request JSON Lines"]
+    Mode --> Post["Jackson and existing upsert endpoint"]
 ```
 
-The application validates and stages the **whole file before any consent upsert**. An invalid later row blocks every consent POST from the file. Earlier rows may already have caused read-only member lookups, and their plans may already be stored locally.
+The whole file must pass parsing, enrichment and projection before any upsert. Group conflicts or invalid later records block every request. Read-only lookups for earlier rows may already have occurred.
 
-The [full architecture](architecture.md) and [editable Mermaid source](architecture.mmd) include intake, delivery outcomes and the recovery ledger.
+## 2. The latest sample
+
+The supplied [CONSENT JSON ARRAY.txt](../examples/json-sample/CONSENT%20JSON%20ARRAY.txt) has a descriptive heading, then this target model:
+
+- Root object with a `consents` array, which can contain multiple members.
+- Provider PCDS entries with `coverage: []`.
+- One payer P2PDS entry per configured member group, with a `coverage` array containing multiple payer/policy records.
+- `consentManager` beside `transactionDetails` inside each entry.
+- Per-entry metadata, including different source systems and the supplied timestamp string format.
+
+The sample mapping reproduces that exact JSON body after removing the heading. Three flat rows describe two members: the second member repeats with a different payer. Configuration coalesces repeated provider data and groups both coverages under the same payer consent.
+
+The actual complete body is [expected-envelope.json](../examples/flexible/expected-envelope.json). The target includes two PCDS entries and one P2PDS entry containing two coverages. The grouping and shape are mapping choices, not hard-coded consent branches in `ProjectionEngine`.
+
+FILE scope is chosen for this example to demonstrate a multi-member request. The service's actual batch limit, merge/replace semantics for coverage, response format and transaction guarantees remain integration decisions.
 
 ## 3. Code tour
 
-Java paths below are relative to `src/main/java/com/jenbrick/fileadapter`.
+| File | What to inspect |
+| --- | --- |
+| [Profile](../src/main/java/com/jenbrick/fileadapter/config/Profile.java) | Independent layout, legacy mappings and optional projection |
+| [ProfileCatalog](../src/main/java/com/jenbrick/fileadapter/config/ProfileCatalog.java) | Routing, startup validation and selection of mapping strategy |
+| [FileFormatAdapter](../src/main/java/com/jenbrick/fileadapter/source/FileFormatAdapter.java) | Syntax-only extension contract |
+| [SourceNormalizer](../src/main/java/com/jenbrick/fileadapter/source/SourceNormalizer.java) | Physical names/JSON Pointers mapped to logical fields |
+| [Projection](../src/main/java/com/jenbrick/fileadapter/projection/Projection.java) | Small declarative template model |
+| [ProjectionEngine](../src/main/java/com/jenbrick/fileadapter/projection/ProjectionEngine.java) | Tree rendering, collection filters, grouping and conflict detection |
+| [MappingValues](../src/main/java/com/jenbrick/fileadapter/mapping/MappingValues.java) | Shared defaults, transforms, null/blank and code translation semantics |
+| [RecordEnricher](../src/main/java/com/jenbrick/fileadapter/projection/RecordEnricher.java) | Named business extension independent of output structure |
+| [ConsentMemberEnricher](../src/main/java/com/jenbrick/fileadapter/projection/ConsentMemberEnricher.java) | Example lookup adapter adding `resolved` values |
+| [EnrichedRecordStore](../src/main/java/com/jenbrick/fileadapter/projection/EnrichedRecordStore.java) | Frozen enriched values for interrupted preflight |
+| [FileProcessor](../src/main/java/com/jenbrick/fileadapter/processing/FileProcessor.java) | Parse/enrich/project/stage lifecycle and delivery |
+| [ProcessingLedger](../src/main/java/com/jenbrick/fileadapter/processing/ProcessingLedger.java) | Payloads, multiple source origins, attempts and acknowledgement |
+| [PreviewWriter](../src/main/java/com/jenbrick/fileadapter/processing/PreviewWriter.java) | File-labelled previews and aggregate provenance |
+| [HttpUpsertClient](../src/main/java/com/jenbrick/fileadapter/delivery/HttpUpsertClient.java) | Generic JsonNode transport and response classification |
 
-| Open | Responsibility | What to discuss |
+The optional old `ConfigurableRequestMapper` handles scalar-to-object-path mappings, and `ConsentRequestPlanner` preserves older consent snapshots. Neither determines the new configurable projection shape.
+
+## 4. Configuration model
+
+Each template node selects exactly one constructor:
+
+| Constructor | Example | Result |
 | --- | --- | --- |
-| [application.yml](../src/main/resources/application.yml) | Active profiles and shared consent settings | Routing, layouts, code maps and environment variables |
-| [FileAdapterApplication](../src/main/java/com/jenbrick/fileadapter/FileAdapterApplication.java) | Startup and one-shot commands | File processing, explicit resume and exit codes |
-| [DirectoryPoller](../src/main/java/com/jenbrick/fileadapter/processing/DirectoryPoller.java) | Scheduled intake | Ready markers, minimum age and recovery |
-| [ProfileCatalog](../src/main/java/com/jenbrick/fileadapter/config/ProfileCatalog.java) | Profile selection and validation | Exactly one matching filename profile or an explicit CLI selection |
-| [FileFormatAdapter](../src/main/java/com/jenbrick/fileadapter/source/FileFormatAdapter.java) | Parser extension interface | Syntax and record boundaries |
-| [SourceNormalizer](../src/main/java/com/jenbrick/fileadapter/source/SourceNormalizer.java) | Logical field selection | Aliases and JSON Pointer selectors |
-| [ConsentRequestPlanner](../src/main/java/com/jenbrick/fileadapter/consent/ConsentRequestPlanner.java) | Consent business assembly | Intent, required data, lookup and nested entry objects |
-| [MemberResolver](../src/main/java/com/jenbrick/fileadapter/consent/MemberResolver.java) | Company integration port | Actual member/manager/GUID resolution belongs here |
-| [ConfiguredMemberResolver](../src/main/java/com/jenbrick/fileadapter/consent/ConfiguredMemberResolver.java) | Default resolver | Proposed HTTP facade protocol and synthetic fixtures |
-| [ConsentPlanStore](../src/main/java/com/jenbrick/fileadapter/consent/ConsentPlanStore.java) | Frozen member plans | Reuse resolved values after interrupted staging |
-| [FileProcessor](../src/main/java/com/jenbrick/fileadapter/processing/FileProcessor.java) | Run orchestration | Wrap each nonempty plan as one array, preflight, delivery and recovery |
-| [ProcessingLedger](../src/main/java/com/jenbrick/fileadapter/processing/ProcessingLedger.java) | Durable run and request state | Payloads, source rows, attempts and acknowledgement |
-| [PreviewWriter](../src/main/java/com/jenbrick/fileadapter/processing/PreviewWriter.java) | Preview exports | Source metadata and member-array origins |
-| [HttpUpsertClient](../src/main/java/com/jenbrick/fileadapter/delivery/HttpUpsertClient.java) | HTTP transport | Jackson serialization, tokens, keys and response classification |
+| `source` | `{ source: FIRST_NAME, transforms: [trim] }` | Mapped source/enriched value |
+| `literal-json` | `{ literal-json: '[]' }` | Typed constant, empty array/object or null |
+| `object` | Named child nodes | JSON object |
+| `array` | Collection rules with `item` templates | JSON array |
 
-Generic employee profiles remain available. They use `ConfigurableRequestMapper` and `RequestValidator`; consent profiles use the explicit domain planner. This lets the application retain a generic mapping example while keeping consent business rules readable.
-
-## 4. Intake and profile selection
-
-The operating system mounts the LAN share. The worker reads a path accessible to its service account; it does not mount SMB shares or manage their credentials.
-
-For polling, the producer finishes and closes the data file, then creates an empty sibling `<filename>.ready` marker. It must not change the data file after publishing that marker. The poller also checks minimum age. The worker copies the file to durable local storage and registers the run before removing a polled input and its marker. One-shot CLI input is copied and retained at its original location.
-
-The supported deployment is one worker and one owner of the incoming directory, with persistent local work storage. A process lock protects that work directory. Separate workers with separate work directories must not race over the same incoming files.
-
-Filename routing must select exactly one profile. For an arbitrarily named headed CSV, a one-shot command can select the profile explicitly:
-
-```bash
-java -jar build/libs/fileadapter-0.1.0.jar \
-  --spring.profiles.active=consent-demo \
-  --ingestion.profile-id=cms-consent-csv-v1 \
-  --ingestion.file=/path/to/member-consents.csv
-```
-
-The default headed consent CSV pattern accepts `consent.csv` and `consent-header*.csv`. Change the patterns for the actual producer's naming scheme.
-
-## 5. Adapter pattern and normalized representation
-
-Each adapter implements `FileFormatAdapter`, owns its parser resources and emits `SourceRecord(number, payload)`. The payload is a Jackson `JsonNode`. Source record numbers identify logical records; a quoted CSV record can span physical lines.
-
-| Adapter | Record boundary | Layout settings |
-| --- | --- | --- |
-| Delimited | CSV-aware record | Delimiter, header mode, or ordered headerless columns |
-| Fixed width | Physical line | Exact length and zero-based Unicode code point ranges |
-| XML | Selected element | Absolute record path and namespace aliases |
-| JSON | Root object, array item, or line | Explicit OBJECT, ARRAY or LINES mode |
-
-The supplied headerless layouts preserve the 30-field order. The fixed-width sample uses illustrative 544-character records, not a production specification. XML selects `/members/member`. JSON input array mode describes **input record boundaries**; it is separate from the array used as the **output POST body**.
-
-`SourceNormalizer` can map physical columns or nested JSON Pointer paths to logical fields. Aliases present together must agree. Consent fields are strings or null so identifiers keep leading zeros. Do not put member lookups or consent business rules into a syntax parser.
-
-See [formats](formats.md) for parser rules and [extensions](extensions.md) for new adapters and custom Java behavior.
-
-## 6. Profiles and business settings
-
-A consent profile selects the layout and references shared consent rules. This is an excerpt, not a complete external configuration file:
+Arrays can filter source rows and group them before projecting an item. Nested collections operate on the parent group's rows. In the consent example:
 
 ```yaml
-id: cms-consent-csv-v1
-filename-pattern: "consent{,-header*}.csv"
-layout:
-  format: DELIMITED
-  charset: UTF-8
-  delimiter: ","
-  header-mode: FIRST_RECORD
-consent:
-  version: cms-consent-v2
-  provider-target: PCDS
-  payer-target: P2PDS
-  preferences: { GRANT: GRANT, RVOKE: RVOKE }
-  relationships: { SELF: SELF, SPOUSE: SPOUSE, DEPENDENT: DEPENDENT, OTHER: OTHER }
-  date-pattern: uuuu-MM-dd
+array:
+  - where: { source: PROVIDER_CLINICAL_CONSENT_PREFERENCE, present: true }
+    group-by: [resolved.owner.contractMemberGuid]
+    item:
+      object:
+        consentTarget: { literal-json: '"PCDS"' }
+        consentOwner: { source: resolved.owner, required: true }
+        coverage: { literal-json: '[]' }
 ```
 
-The full settings also define transaction metadata and lookup mode, endpoint, timeouts and fixtures. YAML anchors share the rules across consent layouts.
+This is an excerpt, not the complete consent mapping. The full YAML includes status/date conversion, manager, metadata and nested payer coverage collections.
 
-Spring replaces configuration lists instead of merging their elements. An external override must supply the complete `ingestion.profiles` list. Version meaningful business-rule changes and keep credentials in environment variables. Existing runs retain their original snapshots.
+All mapped scalar values in a group must agree after conversion. Conflicting dates, statuses, identities or other mapped values fail preflight. Identical duplicate rows can coalesce when group keys match. Coverage deduplication uses the example's payer ID and policy ID keys; configure the approved business keys when known.
 
-## 7. Member enrichment
+`scope: FILE` assembles one bounded aggregate request. `scope: RECORD` maps each input record separately. `skip-when-empty` can suppress a request with an empty result collection. `input-contract` checks required normalized fields before lookup, and node `checks` validate constructed object paths/types/nullability. This is not full JSON Schema validation or an arbitrary expression language.
 
-Input `EXTERNAL_CONTRACT_ID` is external. It must not be copied into the internal contract property as a shortcut. `MemberResolver` returns:
-
-- Owner internal contract, three-character PIN and opaque contract member GUID.
-- An independently resolved consent manager identity, potentially a guardian or another member.
-- Existing provider and payer consent GUIDs, or null for inserts, using the appropriate payer/policy scope.
-
-The default HTTP implementation is a **proposed facade contract**, not an implementation of an already identified company API. Replace the resolver with the actual company integration, or implement the facade to compose the required database/API calls. Lookup operations must be read-only even though the proposed transport uses POST.
-
-The resolver requires a unique valid resolution and HTTP 200 for the facade. Lookup errors fail preflight; the worker does not automatically retry those calls. Invalid or missing identities fail rather than falling back to guessed keys or assuming the manager is the owner. A PIN remains a string and can contain letters.
-
-[The consent reference](consent.md#member-enrichment-integration) contains the complete lookup request and response examples. `CONSENT_LOOKUP_BEARER_TOKEN` and `UPSERT_BEARER_TOKEN` authenticate the two integrations separately and stay outside persisted snapshots.
-
-## 8. Consent entries and the complete request
-
-Common entry fields are consent GUID, target, status, owner, effective dates and transaction details. `transactionDetails` belongs inside each consent entry, alongside `coverage` when coverage exists. It contains source system, source timestamp, source transaction identifier and the resolved consent manager.
-
-The planner uses a null consent GUID for inserts or the resolved existing GUID for updates. It emits an explicit null consent end date because the input has no dedicated consent end date. Payer policy effective/cancel dates do not become consent dates. Source dates use a strict configured input pattern and become ISO dates. A normal UTC source timestamp is captured once per completed member plan; the fixture demo fixes it for comparison.
-
-The following is the actual combined POST body for synthetic sample member 1:
-
-<!-- BEGIN combined-request-example -->
-```json
-[
-  {
-    "consentGuid": null,
-    "consentTarget": "PCDS",
-    "consentStatus": "RVOKE",
-    "consentOwner": {
-      "contract": "990000001",
-      "pin": "001",
-      "contractMemberGuid": "SYN-MEMBER-1"
-    },
-    "effectiveDate": "2026-10-01",
-    "effectiveEndDate": null,
-    "transactionDetails": {
-      "sourceSystem": "MDB",
-      "sourceDateTime": "2026-10-27T12:00:00Z",
-      "sourceTransactionIdentifier": "synthetic.demo",
-      "consentManager": {
-        "contract": "990000001",
-        "pin": "001",
-        "contractMemberGuid": "SYN-MEMBER-1"
-      }
-    }
-  },
-  {
-    "consentGuid": "SYN-CONSENT-20001",
-    "consentTarget": "P2PDS",
-    "consentStatus": "GRANT",
-    "consentOwner": {
-      "contract": "990000001",
-      "pin": "001",
-      "contractMemberGuid": "SYN-MEMBER-1"
-    },
-    "effectiveDate": "2026-10-02",
-    "effectiveEndDate": null,
-    "transactionDetails": {
-      "sourceSystem": "MDB",
-      "sourceDateTime": "2026-10-27T12:00:00Z",
-      "sourceTransactionIdentifier": "synthetic.demo",
-      "consentManager": {
-        "contract": "990000001",
-        "pin": "001",
-        "contractMemberGuid": "SYN-MEMBER-1"
-      }
-    },
-    "coverage": {
-      "payerId": "SYN-PAYER",
-      "otherPayerMemberId": "SYN-POL-1001",
-      "groupNumber": "SYN-GRP-01",
-      "policyHolderFirstName": "Alex",
-      "policyHolderLastName": "Example",
-      "policyHolderMiddleName": "Q",
-      "policyHolderGender": "F",
-      "policyHolderDateOfBirth": "1980-01-02",
-      "relationshipToPolicyHolder": "SELF"
-    }
-  }
-]
-```
-<!-- END combined-request-example -->
-
-A provider-only or payer-only body is still an array, with one entry. Complete examples are available as [provider-only](../examples/consent/expected-provider-request.json), [payer with coverage](../examples/consent/expected-payer-request.json) and [general payer without coverage](../examples/consent/expected-payer-general-request.json).
-
-Coverage is present when at least one mapped payer/subscriber coverage field is nonblank. That shape requires payer ID, policy ID and a translated relationship. Partial coverage fails validation. If every mapped coverage field is blank/null, the planner emits one general P2PDS entry without coverage. Payer name, address, plan type and policy dates currently have no approved target paths and remain in the retained source. See the [full field disposition](consent.md#field-disposition).
-
-## 9. Whole-file preflight and frozen plans
-
-For each member row, the planner validates intent and applicable fields, resolves identities, assembles consent entries and persists the completed plan in H2. An empty plan records a no-change row. A nonempty plan becomes exactly one staged array request.
-
-| Persisted object | Key | Stored information |
-| --- | --- | --- |
-| Run snapshot | Run ID | Profile, rules, mode and delivery settings, excluding tokens |
-| Member plan | Run ID + source record number | Zero, one or two frozen entry objects, including resolved identities and timestamps |
-| Delivery request | Run ID + request number | Complete member array, source row, status and attempts |
-
-If staging is interrupted, saved member plans are reused. A crash before a plan is saved may repeat its read-only lookup. Once a run is READY, delivery and resume use saved array bodies and never look members up again.
-
-A later malformed date, unknown preference, incomplete coverage or unresolved member blocks every consent upsert from the file. A valid file containing only no-change rows succeeds with zero requests. Empty/header-only input fails.
-
-## 10. Run identity, acknowledgement and recovery
-
-Run identity is SHA-256 over input content hash plus the canonical snapshot. Filename is excluded. Identical content and settings deduplicate within the retained local ledger. Changing content or settings creates a different run; changing only remote lookup data does not.
-
-Request keys use `<run-id>:<request-number>`. A two-entry member array has one request number, one key and one acknowledgement. The worker persists SENDING before making the network call.
-
-| Upsert result | Outcome | Handling |
-| --- | --- | --- |
-| Configured success, default 200/201/204 | ACKNOWLEDGED | Skip this member array on future recovery |
-| Other 2xx, including 202 by default | UNCERTAIN | Apply replay-safety policy |
-| 408, 429, 5xx | RETRYABLE | Apply replay-safety policy |
-| Other HTTP status | REJECTED | Fail the run |
-| Transport error or timeout | UNCERTAIN | Apply replay-safety policy |
-
-Default replay safety is false. A header alone does not create idempotency. When the service guarantees safe replay, the worker can retry the **same complete array** with the same key and body. Previously acknowledged member arrays are skipped. It does not separately retry a provider or payer entry.
-
-One HTTP POST does not establish service-side transaction atomicity. An agreed success status must mean all entries completed. If the service returns per-entry outcomes, that response protocol must be implemented. A partial server-side commit followed by timeout needs whole-request idempotency or service-supported reconciliation.
-
-```mermaid
-flowchart TD
-    Staging["STAGING: parse, enrich and build arrays"] --> Ready["READY: entire file validated"]
-    Staging -->|Invalid row or lookup| Failed["FAILED"]
-    Ready -->|PREVIEW| Finalizing["FINALIZING: publish and archive"]
-    Ready -->|LIVE| Delivering["DELIVERING: member arrays"]
-    Delivering -->|All acknowledged| Finalizing
-    Delivering -->|Unsafe or exhausted retry| Paused["PAUSED"]
-    Delivering -->|Permanent rejection| Failed
-    Finalizing --> Done["PREVIEWED or COMPLETED"]
-```
-
-Resume uses saved mode, endpoint, payloads and retry settings, with current runtime credentials. Unsafe uncertain requests remain paused even with explicit resume. FAILED runs are not resumed; correct the input/configuration and submit a new run. After correcting a transient lookup failure for identical input, deliberately bump the rule version to create a new run, as described in the [consent reference](consent.md).
-
-New consent runs use engine version 3 and rules version `cms-consent-v2`. Historical version 2 previews remain readable. Unfinished version 2 LIVE runs pause before any legacy split-object POST; reconcile previous effects and submit a new array run. The worker does not silently regroup old in-flight requests.
-
-## 11. Preview traceability
-
-The named preview is `var-consent-demo/preview/<run-id>/<source-file>.preview.json` in the fixture demo. It contains:
-
-| Property | Meaning |
-| --- | --- |
-| `source` | Filename, format, profile, run identity, request count and layout details |
-| `source.requestBodyShape` | MEMBER_CONSENT_ARRAY for the current consent model |
-| `source.engineVersion`, `source.consentRuleVersion` | Processing and business-rule versions |
-| `requests` | Actual POST bodies: each element is itself a member array |
-| `requestDetails` | Corresponding request number, source row, consentTargets and consentEntryCount |
-
-For example, `requests[0]` contains both entries for sample member 1. The outer preview document is for inspection, not submission. The adjacent `requests.jsonl` contains one complete array POST body per line.
-
-The five-row fixture produces four POST bodies and six consent entries. The fifth row is a no-op. Historical and current previews can coexist under different run IDs, so inspect the logged run directory and version metadata when comparing results.
-
-## 12. Build and run the CSV preview in Git Bash
-
-Run from the repository root with a JDK available through `JAVA_HOME` and `PATH`:
+## 5. Build and run in Git Bash
 
 ```bash
 java -version
@@ -302,134 +105,71 @@ javac -version
 ./gradlew test bootJar
 
 java -jar build/libs/fileadapter-0.1.0.jar \
-  --spring.profiles.active=consent-demo \
-  --ingestion.file=examples/consent/consent.csv
+  --spring.profiles.active=flexible-demo \
+  --ingestion.file=examples/flexible/flexible-consents.csv
 ```
 
-The initial Java runtime must already be installed. Gradle can provision the compiler toolchain when needed, subject to approved network access. `JAVA_HOME` points to the JDK installation root, not its `bin` directory. The built artifact remains `build/libs/fileadapter-0.1.0.jar` even if the clone folder is named `file-adapter-poc`.
+Use a JDK installation root for `JAVA_HOME`, not `bin`. Gradle can provision a compiler toolchain but still needs an initial Java runtime. The internal clone may be named `file-adapter-poc`; the artifact remains `fileadapter-0.1.0.jar`.
 
-`consent-demo` disables polling, uses PREVIEW, selects synthetic fixtures, fixes transaction metadata and writes to `var-consent-demo`. This demo makes no HTTP calls. Ordinary consent PREVIEW can call HTTP member lookup, but it never posts consent upserts. LIVE refuses fixture lookup.
+The demo disables polling and uses PREVIEW with synthetic enrichment, so it makes no external HTTP calls. The named preview is under `var-flexible-demo/preview/<run-id>/`. Compare its first `requests` element with `examples/flexible/expected-envelope.json`.
 
-Inspect the run ID in the log, then open its named preview and `requests.jsonl`. Compare the bodies with [expected-requests.jsonl](../examples/consent/expected-requests.jsonl) and the origins with [expected-request-details.json](../examples/consent/expected-request-details.json).
+The named preview identifies the source filename, format, profile, projection version and scope. Its `requestDetails` shows `sourceRecordNumbers: [1,2,3]` because the aggregate depends on all three rows. The wrapper preview is not a POST body; `requests.jsonl` contains the exact body per line.
 
-## 13. Repeat with other formats
+## 6. Demonstrate a different contract using the same input
 
 ```bash
-for file in consent.csv consent-noheader.csv consent-header.psv consent-noheader.psv \
-            consent.fw consent.xml consent-array.json consent.jsonl consent-object.json; do
+java -jar build/libs/fileadapter-0.1.0.jar \
+  --spring.profiles.active=flexible-demo \
+  --ingestion.profile-id=flexible-root-array-v1 \
+  --ingestion.file=examples/flexible/flexible-consents.csv
+
+java -jar build/libs/fileadapter-0.1.0.jar \
+  --spring.profiles.active=flexible-demo \
+  --ingestion.profile-id=flexible-reshaped-v1 \
+  --ingestion.file=examples/flexible/flexible-consents.csv
+```
+
+The first changes the wrapper to a root array. The second changes `consents` to `payload.entries`, moves the manager inside transaction details, and changes `coverage` to `payerInfo.coverages`. The adapters, enrichment and HTTP implementation are the same; only templates differ.
+
+Use `flexible-record-v1` to demonstrate an unrelated per-record name mapping with no enrichment. This makes the adapter POC useful beyond the consent use case.
+
+## 7. Demonstrate different file formats
+
+```bash
+for file in flexible-consents.csv flexible-consents.psv flexible-consents.fw \
+            flexible-consents.xml flexible-consents.json; do
   java -jar build/libs/fileadapter-0.1.0.jar \
-    --spring.profiles.active=consent-demo \
-    --ingestion.file="examples/consent/$file" || break
+    --spring.profiles.active=flexible-demo \
+    --ingestion.file="examples/flexible/$file" || break
 done
 ```
 
-All five-member examples produce the same four array bodies. `consent-object.json` contains one member and produces one two-entry array.
+Each format produces the same latest-sample envelope. Fixed width uses illustrative 32-character ranges. The JSON input mode controls source record boundaries; it does not constrain the output JSON shape. Layout aliases and selectors adapt other source structures without changing templates or enrichers.
 
-To demonstrate the alternative general payer shape:
+## 8. Enrichment and real integration
 
-```bash
-java -jar build/libs/fileadapter-0.1.0.jar \
-  --spring.profiles.active=consent-demo \
-  --ingestion.file=examples/consent/consent-object-payer-general.json
-```
+The named `consent-member` example reuses the existing `MemberResolver` and exposes resolved identities/GUIDs under a reserved `resolved` property. Another named enricher can call a different read-only service or calculate additional values. The projection determines where those values appear.
 
-That example produces one array containing one P2PDS entry without coverage. The [example generator](../scripts/generate_consent_examples.py) regenerates the synthetic fixtures and expected outputs. Python is optional for the Java worker and fixture preview.
+The existing lookup facade is a proposed protocol until actual company APIs are supplied. Normal HTTP enrichment can run in PREVIEW; PREVIEW only suppresses upsert delivery. LIVE refuses synthetic member fixtures. Separate bearer tokens protect lookup and upsert integrations, and tokens stay outside snapshots.
 
-## 14. HTTP lookup and delivery demo
+The example preserves the input timestamp string exactly. It does not infer a timezone from the offset-free sample. Timestamp validation, generated audit metadata and timezone policy can be expressed through a configured transform/enricher once agreed.
 
-Start the loopback-only synthetic server in terminal 1:
+## 9. Recovery and compatibility
 
-```bash
-python scripts/mock_consent_services.py
-```
+The immutable run snapshot includes the complete projection configuration. Content plus snapshot determines run identity. Enriched rows are durably saved before mapping, so an interrupted STAGING run can reuse external lookup results. A crash before saving a row may repeat its read-only lookup.
 
-In terminal 2, use a fresh work directory and omit the fixture Spring profile:
+Mapped requests are durably staged only after successful file parsing and projection. READY/delivery/resume uses saved JSON, not new lookup or template evaluation. Aggregates retain all source row numbers for preview and error traceability.
 
-```bash
-export CONSENT_LOOKUP_URL='http://127.0.0.1:8082/members/resolve'
-export UPSERT_URL='http://127.0.0.1:8082/consents/upsert'
-export CONSENT_SOURCE_TRANSACTION='synthetic.demo'
-export CONSENT_SOURCE_DATETIME='2026-10-27T12:00:00Z'
+New projection snapshots use engine version 4. Older employee mappings and specialized consent examples keep their old strategies. Unfinished engine-version-2 LIVE consent runs remain protected from sending invalid legacy object payloads.
 
-java -jar build/libs/fileadapter-0.1.0.jar \
-  --ingestion.file=examples/consent/consent.csv \
-  --ingestion.work-directory=./var-consent-walkthrough-live \
-  --ingestion.mode=LIVE --ingestion.poll-enabled=false
-```
+Acknowledgement applies to the selected staged request body, whether it is an object, root array or multi-member envelope. Replay safety defaults to false. Enable it only when the service guarantees the agreed idempotency key. An HTTP status is sufficient only if the response contract says it acknowledges the whole body. Item-level errors, merge/replace semantics and async completion remain separate integration work.
 
-The mock resolves synthetic members and captures accepted array requests in `var-consent-mock/received.jsonl`. It is a demo receiver, not the company service or a complete schema validator. Its idempotency memory lasts only until that Python process exits.
+## 10. POC limits and next decisions
 
-## 15. Whole-array retry demo
+Projection is intentionally bounded and in-process. The example allows 1,000 rows per file, configurable from 1 to 10,000. Record scope currently shares this bounded-file preflight. The engine limits template depth and node count, and contains no scripts, reflection-based expressions or unrelated-source joins.
 
-Stop the previous mock, then start a new one in terminal 1:
+One worker, local durable H2 and one incoming-directory owner remain the deployment scope. The operating system mounts the LAN share. Polling uses closed input files plus `.ready` markers. Protect stored sources, enrichment results, previews and payloads, and define retention/monitoring before a real deployment.
 
-```bash
-python scripts/mock_consent_services.py --fail-once-target P2PDS
-```
+The main team decisions are now about the producer's actual layout, normalization and grouping keys, enrichment contracts, request scope/limits, and endpoint acknowledgement/idempotency semantics. Ordinary changes to property names, nesting and JSON collections belong in mappings.
 
-In terminal 2, retain the environment variables from the HTTP demo and select another fresh work directory:
-
-```bash
-java -jar build/libs/fileadapter-0.1.0.jar \
-  --ingestion.file=examples/consent/consent.csv \
-  --ingestion.work-directory=./var-consent-walkthrough-retry \
-  --ingestion.mode=LIVE --ingestion.poll-enabled=false \
-  --ingestion.delivery.replay-safe=true \
-  --ingestion.delivery.max-attempts=1
-```
-
-The first member array contains both targets. The mock returns 503 before accepting it, and the worker pauses. Keep the same mock running and resume with the logged run ID:
-
-```bash
-java -jar build/libs/fileadapter-0.1.0.jar \
-  --ingestion.work-directory=./var-consent-walkthrough-retry \
-  --ingestion.resume=RUN_ID --ingestion.poll-enabled=false
-```
-
-The retry sends the original complete two-entry array with the same key, then delivers the remaining member arrays. Automated tests also cover skipping earlier acknowledged members. Enable replay safety against a real service only when its owners guarantee the required behavior.
-
-For a preflight-failure exercise, work with a copy of the input and introduce an invalid later consent date. Select the headed CSV profile explicitly if its filename does not match. Inspect the error report: it identifies the source row, and no consent POST occurs. Read-only lookups for earlier valid rows may already have happened.
-
-## 16. Where new discoveries belong
-
-| Discovery or requested change | Change here |
-| --- | --- |
-| Different header or nested source field | Layout field selectors and aliases |
-| New headerless order or fixed-width ranges | Layout columns/ranges |
-| Different file syntax | Format identifier, layout validation and FileFormatAdapter implementation |
-| New source preference or relationship codes | Explicit consent code maps |
-| Different input date format, target codes or metadata | Consent settings and environment |
-| Actual company lookup APIs/database calls | MemberResolver implementation or facade |
-| New consent/coverage structures or business rules | ConsentRequestPlanner and expected-body fixtures |
-| Per-entry result or asynchronous completion protocol | Delivery client and acknowledgement/reconciliation model |
-| Multiple source rows combined into one business entity | Explicit assembler with agreed grouping and conflict rules |
-
-Do not bury domain joins or remote calls in a CSV adapter or scalar transform. Keep changes compatible with saved runs, and plan versions/migrations when semantics change. See [extensions](extensions.md).
-
-## 17. Validation and operational boundaries
-
-The implementation baseline at [f8a260e](https://github.com/jenbrick/fileadapter/commit/f8a260efbe927cbeb9c2e938bc52bc058687a12c) passed 103 tests. Those cover all consent layouts, expected array bodies, no-change rows, general payer shape, identity/date/code checks, full-file preflight, stable whole-array retry bodies/keys, skipped acknowledged members, no repeated delivery-time lookups and legacy LIVE protection. Packaged preview and HTTP retry/resume demos were also verified at that baseline.
-
-Useful test entry points:
-
-- [ConsentPreviewIntegrationTest](../src/test/java/com/jenbrick/fileadapter/ConsentPreviewIntegrationTest.java)
-- [ConsentLiveIntegrationTest](../src/test/java/com/jenbrick/fileadapter/ConsentLiveIntegrationTest.java)
-- [ConsentRulesTest](../src/test/java/com/jenbrick/fileadapter/consent/ConsentRulesTest.java)
-- [LiveIntegrationTest](../src/test/java/com/jenbrick/fileadapter/LiveIntegrationTest.java) for the generic delivery safeguards
-
-Local H2 provides durable single-worker state. It does not establish a cross-system exactly-once transaction. Define storage capacity, access, retention, backups, monitoring and reconciliation ownership. Inputs, plans, previews and captures can contain member data; logs and error reports omit raw source values and HTTP bodies. The shared repository examples are synthetic.
-
-## 18. Decisions to close with the team
-
-| Area | Decision |
-| --- | --- |
-| Producer contract | Actual filenames, encoding, layout, date formats and ready-marker ownership |
-| Intent | Source codes, blank semantics and how a full-state row indicates a change |
-| Identity | Unique owner match, manager authorization and existing consent GUID lookup |
-| Payer scope | General versus coverage-specific lookup scope and required coverage fields |
-| Owner shape | Whether the coverage-specific owner should omit PIN |
-| Dates and other payer fields | Consent end-date semantics and approved paths for currently unmapped fields |
-| Service response | Whether success acknowledges every entry, array atomicity, item outcomes and asynchronous status |
-| Replay and concurrency | Whole-request idempotency, business uniqueness, stale GUID handling and reconciliation |
-
-The array request envelope and at most one payer entry per row are confirmed. The actual company lookup contracts and remaining schema/response rules still need agreement. The [consent reference](consent.md) is the detailed field and integration companion to this walkthrough.
+Start validation with [FlexibleProjectionIntegrationTest](../src/test/java/com/jenbrick/fileadapter/FlexibleProjectionIntegrationTest.java) for parser parity, shape variants, conflicts and configuration validation, and [FlexibleProjectionLiveTest](../src/test/java/com/jenbrick/fileadapter/FlexibleProjectionLiveTest.java) for real local HTTP delivery and aggregate retry/provenance.

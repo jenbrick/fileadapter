@@ -7,3 +7,4 @@ var/
 config/*local*
 var-consent-*/
 __pycache__/
+var-flexible-*/

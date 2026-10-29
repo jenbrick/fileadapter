@@ -1,5 +1,7 @@
 # Input formats and runnable examples
 
+The latest [flexible mapping examples](flexible-mappings.md#demonstrate-different-file-adapters) run CSV, pipe, fixed width, XML and JSON through the same configurable JSON projection. The older enrollment examples below remain parser demonstrations.
+
 ## CMS consent formats
 
 The [consent guide](consent.md#every-input-format) provides runnable examples for the supplied 30-field consent feed across all adapters. Headerless layouts preserve that order. Each format runs through the same consent planner and emits the same target-specific bodies. The employee layouts below remain generic examples.

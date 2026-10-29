@@ -1,5 +1,11 @@
 # Extending FileAdapter
 
+## Current projection and enrichment extensions
+
+The [flexible mapping guide](flexible-mappings.md) is the current mapping extension reference. Configure `projection.root` to change JSON objects, nested arrays, wrappers, source selectors, grouping and defaults. Register a named `RecordEnricher` for another business lookup or calculation; enrichment adds values, while the template selects every output property. The included consent-member plugin uses MemberResolver and does not build the output contract.
+
+Projection profiles bypass the older specialized ConsentRequestPlanner and generic object-path mapper. The engine's collection templates now implement bounded grouping and nested array construction. References below to unsupported array expressions describe the older scalar-path mapper, not the projection strategy.
+
 ## Consent enrichment and array assembly
 
 The implemented consent path uses `ConsentRequestPlanner`, `MemberResolver` and `ConsentPlanStore` instead of generic one-record/one-request mapping. Replace the resolver to compose real company APIs/queries. Change `Profile.consent` for preference/relationship maps, targets, date pattern, source metadata and lookup settings. Change the planner when the approved API adds new structures. See [the consent guide](consent.md) for the proposed facade contract, unresolved assumptions and durable plan recovery. Preserve old snapshot behavior when changing business rules.
