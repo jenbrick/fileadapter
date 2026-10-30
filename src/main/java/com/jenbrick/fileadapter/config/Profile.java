@@ -6,23 +6,11 @@ import java.util.Map;
 import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 /** Version this definition whenever the meaning of a feed changes. */
+@com.fasterxml.jackson.annotation.JsonIgnoreProperties(value = {"mappings", "contract"})
 public record Profile(String id, String filenamePattern, Layout layout,
-                      List<FieldMapping> mappings, List<ContractField> contract,
                       @JsonInclude(JsonInclude.Include.NON_NULL)
                       com.jenbrick.fileadapter.consent.ConsentSettings consent,
-                      @JsonInclude(JsonInclude.Include.NON_NULL)
                       com.jenbrick.fileadapter.projection.Projection projection) {
-    @ConstructorBinding public Profile {}
-
-    public Profile(String id, String filenamePattern, Layout layout,
-                   List<FieldMapping> mappings, List<ContractField> contract) {
-        this(id, filenamePattern, layout, mappings, contract, null, null);
-    }
-    public Profile(String id, String filenamePattern, Layout layout,
-                   List<FieldMapping> mappings, List<ContractField> contract,
-                   com.jenbrick.fileadapter.consent.ConsentSettings consent) {
-        this(id, filenamePattern, layout, mappings, contract, consent, null);
-    }
     public enum Format { DELIMITED, FIXED_WIDTH, XML, JSON }
     public enum HeaderMode { FIRST_RECORD, NONE }
     public enum BlankPolicy { OMIT, NULL, EMPTY, REJECT }
@@ -38,7 +26,7 @@ public record Profile(String id, String filenamePattern, Layout layout,
         @ConstructorBinding
         public Layout {}
 
-        // Preserve existing CSV call sites and old persisted layout snapshots.
+        // Convenience constructor for delimited layouts.
         public Layout(Format format, String charset, String delimiter,
                       HeaderMode headerMode, List<String> columns, Map<String, SourceField> fields) {
             this(format, charset, delimiter, headerMode, columns, fields, null, null, null);
@@ -53,7 +41,7 @@ public record Profile(String id, String filenamePattern, Layout layout,
 
     public record SourceField(String column, List<String> aliases) {}
 
-    public record FieldMapping(String source, String target, boolean required,
+    public record ScalarMapping(String source, boolean required,
                                BlankPolicy blankPolicy, String defaultValue,
                                List<String> transforms, Map<String, String> values) {}
 

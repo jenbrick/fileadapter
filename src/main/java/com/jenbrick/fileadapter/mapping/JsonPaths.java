@@ -2,9 +2,8 @@ package com.jenbrick.fileadapter.mapping;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.MissingNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 
-/** Deliberately supports object paths only; array assembly belongs in an extension. */
+/** Dotted source and validation paths; collection assembly belongs to ProjectionEngine. */
 public final class JsonPaths {
     private JsonPaths() {}
 
@@ -23,20 +22,4 @@ public final class JsonPaths {
         return value;
     }
 
-    public static void put(ObjectNode root, String path, JsonNode value) {
-        String[] parts = path.split("\\.");
-        ObjectNode parent = root;
-        for (int i = 0; i < parts.length - 1; i++) {
-            JsonNode child = parent.get(parts[i]);
-            if (child == null) child = parent.putObject(parts[i]);
-            if (!(child instanceof ObjectNode object)) {
-                throw new IllegalArgumentException("Conflicting target path: " + path);
-            }
-            parent = object;
-        }
-        if (parent.has(parts[parts.length - 1])) {
-            throw new IllegalArgumentException("Duplicate target path: " + path);
-        }
-        parent.set(parts[parts.length - 1], value.deepCopy());
-    }
 }

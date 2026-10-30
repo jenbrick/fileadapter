@@ -6,10 +6,10 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 
-/** Immutable business rules and lookup contract, persisted as part of the run snapshot. */
+/** Settings for the optional member lookup; output rules belong to the projection. */
+@com.fasterxml.jackson.annotation.JsonIgnoreProperties(value = {"preferences", "relationships", "sourceSystem", "sourceTransactionIdentifier"})
 public record ConsentSettings(String version, String providerTarget, String payerTarget,
-        Map<String, String> preferences, Map<String, String> relationships,
-        String datePattern, String sourceSystem, String sourceTransactionIdentifier,
+        String datePattern,
         String sourceDateTime, Lookup lookup) {
     public enum LookupMode { FIXTURE, HTTP }
     public record Lookup(LookupMode mode, URI endpoint, Duration connectTimeout,
@@ -22,17 +22,9 @@ public record ConsentSettings(String version, String providerTarget, String paye
     public void validate() {
         required(version); required(providerTarget); required(payerTarget);
         if (providerTarget.equals(payerTarget)) throw new IllegalArgumentException("Consent targets must differ");
-        required(sourceSystem); required(sourceTransactionIdentifier); required(datePattern);
+        required(datePattern);
         DateTimeFormatter.ofPattern(datePattern);
         if (sourceDateTime != null && !sourceDateTime.isBlank()) java.time.OffsetDateTime.parse(sourceDateTime);
-        if (preferences == null || preferences.isEmpty()
-                || preferences.values().stream().anyMatch(v -> !List.of("GRANT", "RVOKE").contains(v))) {
-            throw new IllegalArgumentException("Consent preferences require explicit GRANT/RVOKE mappings");
-        }
-        if (relationships == null || relationships.isEmpty()
-                || relationships.values().stream().anyMatch(v -> !List.of("SELF", "SPOUSE", "DEPENDENT", "OTHER").contains(v))) {
-            throw new IllegalArgumentException("Consent relationship mappings are invalid");
-        }
         if (lookup == null || lookup.mode() == null) throw new IllegalArgumentException("Consent lookup is required");
         if (lookup.mode() == LookupMode.HTTP) {
             var url = lookup.endpoint();

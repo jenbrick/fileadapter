@@ -1,175 +1,379 @@
-# FileAdapter: developer walkthrough
+# FileAdapter: code walkthrough and change guide
 
-This is a proof of concept for the adapter pattern and flexible file-to-JSON mapping. The latest consent sample is the worked example, not a schema embedded in the generic processing engine.
+This is a Spring Boot / Gradle proof of concept for the adapter pattern and configurable file-to-JSON mapping. Consent is its worked example. File syntax, source names, enrichment, outgoing JSON structure and delivery are separate concerns.
 
-Start with [flexible-mappings.md](flexible-mappings.md) for the complete configuration vocabulary and runnable variants. The [working YAML](../src/main/resources/application-flexible-demo.yml) is the primary mapping example. The older specialized consent implementation and PowerPoint are historical compatibility examples.
+The only processing strategy is now the flexible projection engine. Start with [application-flexible-demo.yml](../src/main/resources/application-flexible-demo.yml), the [runnable input matrix](formats.md), and [projection vocabulary](flexible-mappings.md).
 
-## 1. Four responsibilities
+## 1. Start the application
 
-| Responsibility | Extension or configuration | Owns |
-| --- | --- | --- |
-| File syntax | `FileFormatAdapter` | Reading CSV, pipe, fixed width, XML or JSON into records |
-| Business enrichment | Named `RecordEnricher` | Read-only lookup and calculated values |
-| JSON shape | `ProjectionEngine` plus profile templates | Fields, nesting, literals, filtered/grouped arrays and request scope |
-| Delivery/recovery | `FileProcessor`, ledger and `UpsertClient` | Durable staging, HTTP, acknowledgement and replay policy |
+In Git Bash, from the repository root:
 
-A new CSV header does not require an HTTP change. Moving `consentManager` does not require a parser change. A different lookup API belongs in an enricher rather than a file adapter. Another domain can use the same engine without any consent plugin.
-
-```mermaid
-flowchart TD
-    Input["File and layout profile"] --> Adapter["FileFormatAdapter"]
-    Adapter --> Normalize["SourceNormalizer"]
-    Normalize --> Enrich["Optional named RecordEnricher"]
-    Enrich --> Saved["Freeze enriched source rows in H2"]
-    Saved --> Project["Configured object and collection projection"]
-    Project --> Stage["Stage complete JSON requests with source provenance"]
-    Stage --> Mode{"PREVIEW or LIVE"}
-    Mode --> Preview["Named preview plus raw request JSON Lines"]
-    Mode --> Post["Jackson and existing upsert endpoint"]
+```bash
+./gradlew test bootJar
+java -jar build/libs/fileadapter-0.1.0.jar \
+  --spring.profiles.active=flexible-demo \
+  --ingestion.file=examples/flexible/flexible-consents.csv
 ```
 
-The whole file must pass parsing, enrichment and projection before any upsert. Group conflicts or invalid later records block every request. Read-only lookups for earlier rows may already have occurred.
+The flexible demo is also the default Spring profile, so the explicit `--spring.profiles.active` argument is optional. The command processes a single file and exits. With no file or resume argument, the application stays running; the demo disables directory polling.
 
-## 2. The latest sample
+[FileAdapterApplication](../src/main/java/com/jenbrick/fileadapter/FileAdapterApplication.java) starts Spring, reads `IngestionProperties`, and calls:
 
-The supplied [CONSENT JSON ARRAY.txt](../examples/json-sample/CONSENT%20JSON%20ARRAY.txt) has a descriptive heading, then this target model:
+```java
+processor.process(properties.file(), properties.profileId(), false);
+```
 
-- Root object with a `consents` array, which can contain multiple members.
-- Provider PCDS entries with `coverage: []`.
-- One payer P2PDS entry per configured member group, with a `coverage` array containing multiple payer/policy records.
-- `consentManager` beside `transactionDetails` inside each entry.
-- Per-entry metadata, including different source systems and the supplied timestamp string format.
+There are two uses of “profile”:
 
-The sample mapping reproduces that exact JSON body after removing the heading. Three flat rows describe two members: the second member repeats with a different payer. Configuration coalesces repeated provider data and groups both coverages under the same payer consent.
-
-The actual complete body is [expected-envelope.json](../examples/flexible/expected-envelope.json). The target includes two PCDS entries and one P2PDS entry containing two coverages. The grouping and shape are mapping choices, not hard-coded consent branches in `ProjectionEngine`.
-
-FILE scope is chosen for this example to demonstrate a multi-member request. The service's actual batch limit, merge/replace semantics for coverage, response format and transaction guarantees remain integration decisions.
-
-## 3. Code tour
-
-| File | What to inspect |
+| Setting | Purpose |
 | --- | --- |
-| [Profile](../src/main/java/com/jenbrick/fileadapter/config/Profile.java) | Independent layout, legacy mappings and optional projection |
-| [ProfileCatalog](../src/main/java/com/jenbrick/fileadapter/config/ProfileCatalog.java) | Routing, startup validation and selection of mapping strategy |
-| [FileFormatAdapter](../src/main/java/com/jenbrick/fileadapter/source/FileFormatAdapter.java) | Syntax-only extension contract |
-| [SourceNormalizer](../src/main/java/com/jenbrick/fileadapter/source/SourceNormalizer.java) | Physical names/JSON Pointers mapped to logical fields |
-| [Projection](../src/main/java/com/jenbrick/fileadapter/projection/Projection.java) | Small declarative template model |
-| [ProjectionEngine](../src/main/java/com/jenbrick/fileadapter/projection/ProjectionEngine.java) | Tree rendering, collection filters, grouping and conflict detection |
-| [MappingValues](../src/main/java/com/jenbrick/fileadapter/mapping/MappingValues.java) | Shared defaults, transforms, null/blank and code translation semantics |
-| [RecordEnricher](../src/main/java/com/jenbrick/fileadapter/projection/RecordEnricher.java) | Named business extension independent of output structure |
-| [ConsentMemberEnricher](../src/main/java/com/jenbrick/fileadapter/projection/ConsentMemberEnricher.java) | Example lookup adapter adding `resolved` values |
-| [EnrichedRecordStore](../src/main/java/com/jenbrick/fileadapter/projection/EnrichedRecordStore.java) | Frozen enriched values for interrupted preflight |
-| [FileProcessor](../src/main/java/com/jenbrick/fileadapter/processing/FileProcessor.java) | Parse/enrich/project/stage lifecycle and delivery |
-| [ProcessingLedger](../src/main/java/com/jenbrick/fileadapter/processing/ProcessingLedger.java) | Payloads, multiple source origins, attempts and acknowledgement |
-| [PreviewWriter](../src/main/java/com/jenbrick/fileadapter/processing/PreviewWriter.java) | File-labelled previews and aggregate provenance |
-| [HttpUpsertClient](../src/main/java/com/jenbrick/fileadapter/delivery/HttpUpsertClient.java) | Generic JsonNode transport and response classification |
+| `spring.profiles.active=flexible-demo` | Load the Spring configuration file |
+| `ingestion.profile-id=flexible-csv-v1` | Explicitly select a feed definition within `ingestion.profiles` |
 
-The optional old `ConfigurableRequestMapper` handles scalar-to-object-path mappings, and `ConsentRequestPlanner` preserves older consent snapshots. Neither determines the new configurable projection shape.
+Without a feed ID, routing uses the filename. A one-shot command copies its input; directory polling consumes a file only after durable staging and requires a producer-created `.ready` marker.
 
-## 4. Configuration model
+## 2. Select the feed definition
 
-Each template node selects exactly one constructor:
+[ProfileCatalog](../src/main/java/com/jenbrick/fileadapter/config/ProfileCatalog.java) validates configured definitions at startup and selects exactly one definition for the filename or explicit ID.
 
-| Constructor | Example | Result |
+```yaml
+- id: flexible-csv-v1
+  filename-pattern: flexible-consents{,-header*}.csv
+  layout:
+    charset: UTF-8
+    format: DELIMITED
+    delimiter: ','
+    header-mode: FIRST_RECORD
+  consent: # optional lookup settings for the example enricher
+  projection: # output template and processing scope
+```
+
+This is a schematic fragment; copy the complete working configuration before editing it. Zero matching definitions or multiple matches cause an error. The CSV header pattern deliberately excludes `flexible-noheader.csv`.
+
+[FileProcessor.process()](../src/main/java/com/jenbrick/fileadapter/processing/FileProcessor.java) copies the source locally, hashes its contents, saves the profile/delivery snapshot and creates a run. The run ID includes both content and configuration, rather than filename alone.
+
+## 3. Select the physical parser: the adapter pattern
+
+Every parser implements [FileFormatAdapter](../src/main/java/com/jenbrick/fileadapter/source/FileFormatAdapter.java):
+
+```java
+public interface FileFormatAdapter {
+    Profile.Format format();
+    void read(Path file, Profile.Layout layout,
+              Consumer<SourceRecord> consumer) throws IOException;
+}
+```
+
+[AdapterRegistry](../src/main/java/com/jenbrick/fileadapter/source/AdapterRegistry.java) receives Spring's list of implementations and selects one by `layout.format`. Duplicate registrations are rejected.
+
+| Format | Implementation | Layout settings |
 | --- | --- | --- |
-| `source` | `{ source: FIRST_NAME, transforms: [trim] }` | Mapped source/enriched value |
-| `literal-json` | `{ literal-json: '[]' }` | Typed constant, empty array/object or null |
-| `object` | Named child nodes | JSON object |
-| `array` | Collection rules with `item` templates | JSON array |
+| `DELIMITED` | `DelimitedFileAdapter` | Delimiter, header mode, positional columns |
+| `FIXED_WIDTH` | `FixedWidthFileAdapter` | Record length, field offsets and lengths |
+| `XML` | `XmlFileAdapter` | Record element path and namespaces |
+| `JSON` | `JsonFileAdapter` | `ARRAY`, `OBJECT` or `LINES` input mode |
 
-Arrays can filter source rows and group them before projecting an item. Nested collections operate on the parent group's rows. In the consent example:
+CSV, pipe, semicolon and tab files all use the same delimited adapter. Apache Commons CSV handles quoted delimiters and multiline quoted fields. In header mode, each value is addressed by header name; with no header, the configured positional names supply those keys.
+
+Each parser emits `SourceRecord(number, payload)`, where `payload` is a Jackson tree. A CSV row might become:
+
+```json
+{
+  "EXTERNAL_CONTRACT_ID": "EXTERNAL-001",
+  "FIRST_NAME": "Alex",
+  "LAST_NAME": "Example"
+}
+```
+
+This intermediate representation describes the source. It is not the service request. Record numbers count logical data records, rather than physical text lines.
+
+## 4. Normalize source names
+
+[SourceNormalizer](../src/main/java/com/jenbrick/fileadapter/source/SourceNormalizer.java) translates physical field names into logical names used by enrichment and projection.
+
+For a producer that renames the external contract column:
+
+```yaml
+fields:
+  EXTERNAL_CONTRACT_ID:
+    column: CONTRACT_NUMBER
+    aliases: [EXTERNAL_CONTRACT_ID, CONTRACT_ID]
+```
+
+This fragment belongs under `layout`. A nested XML/JSON value can be selected with a JSON Pointer, such as `/member/firstName`; a plain selector is a literal source property name.
+
+**When `layout.fields` is populated, only its listed logical fields survive normalization.** Include every field needed by the downstream lookup and projection, including the unchanged ones. Without `fields`, the original parsed object passes through. Conflicting populated aliases are rejected.
+
+## 5. Enrich the logical record
+
+The example projection enables:
+
+```yaml
+enrichers: [consent-member]
+```
+
+[ProjectionEngine.enrich()](../src/main/java/com/jenbrick/fileadapter/projection/ProjectionEngine.java) validates the input contract, reuses a saved enriched row if present, or invokes the selected [RecordEnricher](../src/main/java/com/jenbrick/fileadapter/projection/RecordEnricher.java) implementations in order.
+
+[ConsentMemberEnricher](../src/main/java/com/jenbrick/fileadapter/projection/ConsentMemberEnricher.java) reads canonical uppercase source fields, calls [MemberResolver](../src/main/java/com/jenbrick/fileadapter/consent/MemberResolver.java), validates the returned member identities, and adds:
+
+```json
+{
+  "resolved": {
+    "owner": {
+      "contract": "123456789",
+      "pin": "001",
+      "contractMemberGuid": "MEMBER-GUID-001"
+    },
+    "manager": {
+      "contract": "123456789",
+      "pin": "001",
+      "contractMemberGuid": "MEMBER-GUID-001"
+    },
+    "providerConsentGuid": null,
+    "payerConsentGuid": null,
+    "sourceDateTime": "2026-10-30T12:00:00Z"
+  }
+}
+```
+
+The original logical fields remain alongside `resolved`. The namespace is reserved by this plugin. No consent preference means no member lookup for that row.
+
+The demo uses synthetic fixtures. HTTP mode exercises a proposed lookup facade, not a discovered company API. Replace the resolver implementation to compose the real calls. Output nesting does not belong in the resolver.
+
+The outgoing audit timestamp in the supplied template comes from `SOURCE_DATETIME`, preserving the sample's offset-free value. `resolved.sourceDateTime` is another available source, not an automatic override of that mapping. Generated per-row times need deliberate handling when rows will be grouped.
+
+## 6. Build JSON from the projection template
+
+[ProjectionEngine.project()](../src/main/java/com/jenbrick/fileadapter/projection/ProjectionEngine.java) evaluates the configured root tree. Each node has exactly one constructor:
+
+| Constructor | Meaning |
+| --- | --- |
+| `source` | Copy a logical/enriched value, object or array |
+| `literal-json` | Insert a JSON constant |
+| `object` | Build named child properties |
+| `array` | Build collections from selected/grouped source rows |
+
+For example, this replacement root:
+
+```yaml
+root:
+  object:
+    member:
+      object:
+        firstName:
+          source: FIRST_NAME
+          transforms: [trim]
+        contractId:
+          source: resolved.owner.contract
+          required: true
+        active:
+          literal-json: 'true'
+```
+
+builds a nested member object. With FILE scope, scalar values at that level must agree across all included rows; use RECORD scope for independently varying member objects.
+
+[MappingValues](../src/main/java/com/jenbrick/fileadapter/mapping/MappingValues.java) handles defaults, transforms, blank policies and code translations. [TransformRegistry](../src/main/java/com/jenbrick/fileadapter/mapping/TransformRegistry.java) supplies trim, case conversion, date conversion and JSON scalar type conversion. Node `checks` and projection `input-contract` provide explicit required/type/nullability validation.
+
+The tree is built with Jackson `ObjectNode`/`ArrayNode` values. There is no fixed Java consent request DTO to update when a property moves.
+
+## 7. Filter and group the consent records
+
+The working template uses `scope: FILE`. Its provider collection:
 
 ```yaml
 array:
-  - where: { source: PROVIDER_CLINICAL_CONSENT_PREFERENCE, present: true }
+  - where:
+      source: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+      present: true
     group-by: [resolved.owner.contractMemberGuid]
     item:
       object:
         consentTarget: { literal-json: '"PCDS"' }
-        consentOwner: { source: resolved.owner, required: true }
-        coverage: { literal-json: '[]' }
+        consentStatus: { source: PROVIDER_CLINICAL_CONSENT_PREFERENCE }
 ```
 
-This is an excerpt, not the complete consent mapping. The full YAML includes status/date conversion, manager, metadata and nested payer coverage collections.
+selects populated provider preferences and builds one provider entry per member. The actual profile adds the other fields and checks. A second collection creates payer consents. Inside each payer consent, a nested array groups coverages by payer ID and policy ID.
 
-All mapped scalar values in a group must agree after conversion. Conflicting dates, statuses, identities or other mapped values fail preflight. Identical duplicate rows can coalesce when group keys match. Coverage deduplication uses the example's payer ID and policy ID keys; configure the approved business keys when known.
+The three-row fixture produces two provider entries and one payer entry containing two coverages. Provider coverage is the literal `[]`. `consentManager` is a sibling of `transactionDetails` in the primary example.
 
-`scope: FILE` assembles one bounded aggregate request. `scope: RECORD` maps each input record separately. `skip-when-empty` can suppress a request with an empty result collection. `input-contract` checks required normalized fields before lookup, and node `checks` validate constructed object paths/types/nullability. This is not full JSON Schema validation or an arbitrary expression language.
+Every mapped scalar within a group must agree after transformation. Conflicting statuses, dates or duplicated coverage details fail preparation; there is no implicit first-row winner. Collections preserve first-seen group order.
 
-## 5. Build and run in Git Bash
+`scope: RECORD` instead builds one request per row and cannot combine coverage across rows. Scope controls request boundaries; root object versus array controls JSON shape. They are independent.
+
+## 8. Stage, preview or deliver
+
+After the entire file passes preparation, `FileProcessor` saves the final body and contributing source record numbers. PREVIEW writes:
+
+```text
+var-flexible-demo/preview/<run-id>/<input-file>.preview.json
+var-flexible-demo/preview/<run-id>/requests.jsonl
+```
+
+The preview includes source metadata and request details. JSON Lines contains one complete compact JSON request body per physical line. A body can itself be an object or an array. Its filename does not imply JSON Lines is sent over HTTP.
+
+LIVE calls [HttpUpsertClient](../src/main/java/com/jenbrick/fileadapter/delivery/HttpUpsertClient.java), which posts each staged body as `application/json`. It does not choose consent-specific fields. Enable LIVE only with the intended lookup and service contracts configured.
+
+## 9. Change an existing file layout
+
+| Producer change | Application change |
+| --- | --- |
+| Reorder header-based CSV columns | None: names address fields |
+| Rename a header | Change normalization selectors/aliases, or projection sources if no normalizer is used |
+| Add an unused column | Usually none |
+| Remove a required input field | Replace/remove its downstream dependencies or reject the feed |
+| Reorder headerless fields | Update `layout.columns` in exact physical order |
+| Change fixed-width positions | Update offsets, lengths and total record length |
+| Move XML records | Change `layout.xml.record-path` |
+| Move nested XML/JSON fields | Change `layout.fields` JSON Pointers |
+| Change input JSON packaging | Select `OBJECT`, `ARRAY` or `LINES` |
+
+Fixed-width offsets are zero-based Unicode code-point offsets. The fixture uses 34 fields of 32 characters each: 1,088 characters per record. Trim padding in mappings where appropriate.
+
+A JSON wrapper such as `{"members":[...]}` is one object in OBJECT mode; the adapter does not automatically expand its array into source records. That would require an explicit input record-selector feature.
+
+## 10. Add a new delimiter
+
+The repository includes a runnable semicolon profile:
+
+```yaml
+- id: flexible-semicolon-v1
+  filename-pattern: flexible*.scsv
+  layout:
+    charset: UTF-8
+    format: DELIMITED
+    delimiter: ';'
+    header-mode: FIRST_RECORD
+  consent: *memberLookup
+  projection: *consentProjection
+```
+
+No new Java adapter is needed. `*memberLookup` and `*consentProjection` refer to anchors defined earlier in the same YAML document. For tab, use the YAML double-quoted value `"\t"`.
+
+For no-header files, set `header-mode: NONE` and supply the complete ordered `columns` list. Examples for both CSV and pipe are checked in. Do not use an abbreviated column list against the full consent fixtures.
+
+Current configuration accepts one delimiter character and fixed CSV quoting rules. Multi-character delimiters or different escaping rules require extending the adapter/configuration.
+
+A genuinely new syntax, such as Excel, requires a format enum value, a Spring `FileFormatAdapter` implementation, layout validation/settings and parser tests. Its emitted `SourceRecord` objects enter the same pipeline.
+
+## 11. Add a contract ID at the top level
+
+To produce an object containing `contractId` and `consents`, replace the root with:
+
+```yaml
+root:
+  object:
+    contractId:
+      source: resolved.owner.contract
+      required: true
+    consents: *consentArray
+```
+
+This selects the internal resolved contract rather than the external source identifier. Run the checked-in variant:
 
 ```bash
-java -version
-javac -version
-./gradlew test bootJar
-
 java -jar build/libs/fileadapter-0.1.0.jar \
-  --spring.profiles.active=flexible-demo \
+  --ingestion.profile-id=flexible-contract-envelope-v1 \
   --ingestion.file=examples/flexible/flexible-consents.csv
 ```
 
-Use a JDK installation root for `JAVA_HOME`, not `bin`. Gradle can provision a compiler toolchain but still needs an initial Java runtime. The internal clone may be named `file-adapter-poc`; the artifact remains `fileadapter-0.1.0.jar`.
+Compare with [expected-contract-envelope.json](../examples/flexible/expected-contract-envelope.json). JSON object property order has no semantic significance; consumers must address `contractId` by name.
 
-The demo disables polling and uses PREVIEW with synthetic enrichment, so it makes no external HTTP calls. The named preview is under `var-flexible-demo/preview/<run-id>/`. Compare its first `requests` element with `examples/flexible/expected-envelope.json`.
+With FILE scope, all rows must agree on that one contract ID. Multiple contracts require a grouped collection or separate requests. The POC has FILE and RECORD scopes; it does not yet offer one-request-per-contract scope.
 
-The named preview identifies the source filename, format, profile, projection version and scope. Its `requestDetails` shows `sourceRecordNumbers: [1,2,3]` because the aggregate depends on all three rows. The wrapper preview is not a POST body; `requests.jsonl` contains the exact body per line.
+## 12. Add, remove, rename or move attributes
 
-## 6. Demonstrate a different contract using the same input
+To add `planType` to coverage, put this node in the payer coverage item's `object`:
+
+```yaml
+planType:
+  source: PAYER_PLAN_TYPE
+  transforms: [trim]
+  blank-policy: OMIT
+```
+
+Use `blank-policy: 'NULL'` to send null for blank text. Remove a node to stop emitting that property, and update any checks referring to it. Rename its object key to rename the output property. Move its complete node to change nesting.
+
+The existing owner node copies an entire object:
+
+```yaml
+consentOwner:
+  source: resolved.owner
+```
+
+To rename its properties or exclude PIN, replace it with explicit children:
+
+```yaml
+consentOwner:
+  object:
+    contractId:
+      source: resolved.owner.contract
+      required: true
+    memberGuid:
+      source: resolved.owner.contractMemberGuid
+      required: true
+```
+
+That changes only output assembly. The lookup continues returning its existing canonical identity. Changing how an identity is obtained belongs in enrichment.
+
+For a typed constant:
+
+```yaml
+schemaVersion:
+  literal-json: '"2"'
+```
+
+`'"2"'` is a JSON string; `'2'` is a JSON number. `literal-json: 'null'` explicitly emits null. Optional missing sources are otherwise omitted, unless `default-json` supplies a fallback.
+
+## 13. Make the whole HTTP body an array
+
+The existing `flexible-root-array-v1` variant replaces `{"consents":[...]}` with `[...]`:
+
+```yaml
+projection:
+  <<: *consentProjection
+  version: flexible-root-array-v1
+  skip-when-empty: "$"
+  root: *consentArray
+```
+
+`skip-when-empty` now checks the root itself instead of the removed wrapper property. Run:
 
 ```bash
 java -jar build/libs/fileadapter-0.1.0.jar \
-  --spring.profiles.active=flexible-demo \
   --ingestion.profile-id=flexible-root-array-v1 \
   --ingestion.file=examples/flexible/flexible-consents.csv
+```
 
+This is one POST with an array body, not one POST per element. Compare [expected-root-array.json](../examples/flexible/expected-root-array.json).
+
+`flexible-reshaped-v1` is another configuration-only variant: it moves `consents` to `payload.entries`, nests manager inside transaction details, and moves coverage to `payerInfo.coverages`. These demonstrate changing contracts; they do not assert that an existing endpoint accepts them.
+
+## 14. Iterate without rebuilding Java
+
+Copy the complete working YAML to `config/feed.yml`, edit that copy, and run:
+
+```bash
 java -jar build/libs/fileadapter-0.1.0.jar \
-  --spring.profiles.active=flexible-demo \
-  --ingestion.profile-id=flexible-reshaped-v1 \
+  --spring.config.additional-location=file:./config/feed.yml \
   --ingestion.file=examples/flexible/flexible-consents.csv
 ```
 
-The first changes the wrapper to a root array. The second changes `consents` to `payload.entries`, moves the manager inside transaction details, and changes `coverage` to `payerInfo.coverages`. The adapters, enrichment and HTTP implementation are the same; only templates differ.
+External YAML changes require a restart, not a rebuild. Spring replaces profile lists rather than merging individual entries; include the full list needed for that run. Anchors stay within one YAML document. Packaged YAML or Java changes require rebuilding the JAR.
 
-Use `flexible-record-v1` to demonstrate an unrelated per-record name mapping with no enrichment. This makes the adapter POC useful beyond the consent use case.
+Keep an input fixture and expected body for each approved mapping. Increment meaningful profile/projection versions, run PREVIEW, and compare bodies before using LIVE. A changed configuration creates a different run identity; it is not a continuation of an earlier LIVE run. Resuming a run deliberately uses its saved configuration and body.
 
-## 7. Demonstrate different file formats
+## 15. Why snapshots remain
 
-```bash
-for file in flexible-consents.csv flexible-consents.psv flexible-consents.fw \
-            flexible-consents.xml flexible-consents.json; do
-  java -jar build/libs/fileadapter-0.1.0.jar \
-    --spring.profiles.active=flexible-demo \
-    --ingestion.file="examples/flexible/$file" || break
-done
-```
+The current implementation retains a file-backed H2 ledger under the work directory. It is not an in-memory database. It saves completed enrichment and final request bodies so a restart/retry can reuse them instead of looking up changing data or generating different timestamps.
 
-Each format produces the same latest-sample envelope. Fixed width uses illustrative 32-character ranges. The JSON input mode controls source record boundaries; it does not constrain the output JSON shape. Layout aliases and selectors adapt other source structures without changing templates or enrichers.
+Snapshots do not lock member records, prevent future updates or guarantee exactly-once delivery. The upsert service must define idempotency and batch acknowledgement. Replay safety defaults to false.
 
-## 8. Enrichment and real integration
+Persistence could be separated behind a store interface, replaced with atomic files/a company database, or omitted for a mapping-only demonstration. These are possible extensions; this cleanup does not introduce a persistence-off setting.
 
-The named `consent-member` example reuses the existing `MemberResolver` and exposes resolved identities/GUIDs under a reserved `resolved` property. Another named enricher can call a different read-only service or calculate additional values. The projection determines where those values appear.
+The POC prepares a bounded collection in memory: 1,000 records in the example, with an allowed limit up to 10,000. It is one worker with a local durable work directory, not an unbounded streaming aggregation engine.
 
-The existing lookup facade is a proposed protocol until actual company APIs are supplied. Normal HTTP enrichment can run in PREVIEW; PREVIEW only suppresses upsert delivery. LIVE refuses synthetic member fixtures. Separate bearer tokens protect lookup and upsert integrations, and tokens stay outside snapshots.
+## Cleanup and existing runs
 
-The example preserves the input timestamp string exactly. It does not infer a timezone from the offset-free sample. Timestamp validation, generated audit metadata and timezone policy can be expressed through a configured transform/enricher once agreed.
+The original employee mappings, specialized consent request planner/store, old fixtures, old mock/generator scripts, consent-demo configuration and superseded PowerPoint have been removed. Markdown and the flexible examples are authoritative. Generic parser, validation, delivery and recovery functionality remains.
 
-## 9. Recovery and compatibility
-
-The immutable run snapshot includes the complete projection configuration. Content plus snapshot determines run identity. Enriched rows are durably saved before mapping, so an interrupted STAGING run can reuse external lookup results. A crash before saving a row may repeat its read-only lookup.
-
-Mapped requests are durably staged only after successful file parsing and projection. READY/delivery/resume uses saved JSON, not new lookup or template evaluation. Aggregates retain all source row numbers for preview and error traceability.
-
-New projection snapshots use engine version 4. Older employee mappings and specialized consent examples keep their old strategies. Unfinished engine-version-2 LIVE consent runs remain protected from sending invalid legacy object payloads.
-
-Acknowledgement applies to the selected staged request body, whether it is an object, root array or multi-member envelope. Replay safety defaults to false. Enable it only when the service guarantees the agreed idempotency key. An HTTP status is sufficient only if the response contract says it acknowledges the whole body. Item-level errors, merge/replace semantics and async completion remain separate integration work.
-
-## 10. POC limits and next decisions
-
-Projection is intentionally bounded and in-process. The example allows 1,000 rows per file, configurable from 1 to 10,000. Record scope currently shares this bounded-file preflight. The engine limits template depth and node count, and contains no scripts, reflection-based expressions or unrelated-source joins.
-
-One worker, local durable H2 and one incoming-directory owner remain the deployment scope. The operating system mounts the LAN share. Polling uses closed input files plus `.ready` markers. Protect stored sources, enrichment results, previews and payloads, and define retention/monitoring before a real deployment.
-
-The main team decisions are now about the producer's actual layout, normalization and grouping keys, enrichment contracts, request scope/limits, and endpoint acknowledgement/idempotency semantics. Ordinary changes to property names, nesting and JSON collections belong in mappings.
-
-Start validation with [FlexibleProjectionIntegrationTest](../src/test/java/com/jenbrick/fileadapter/FlexibleProjectionIntegrationTest.java) for parser parity, shape variants, conflicts and configuration validation, and [FlexibleProjectionLiveTest](../src/test/java/com/jenbrick/fileadapter/FlexibleProjectionLiveTest.java) for real local HTTP delivery and aggregate retry/provenance.
+Projection snapshots use engine version 4. Previously saved flexible snapshots remain readable; ignored obsolete configuration fields do not restore the removed processors. Engine versions 1–3 cannot be resumed by this version. Use the earlier Git revision to resolve those runs with their original behavior. Keep old work directories until any delivery status has been reconciled; do not automatically re-submit their source files in LIVE.

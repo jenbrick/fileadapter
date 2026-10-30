@@ -1,7 +1,5 @@
 package com.jenbrick.fileadapter.config;
 
-import com.jenbrick.fileadapter.mapping.JsonPaths;
-import com.jenbrick.fileadapter.mapping.TransformRegistry;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.util.HashSet;
@@ -11,7 +9,7 @@ import org.springframework.stereotype.Component;
 public class ProfileCatalog {
     private final IngestionProperties properties;
 
-    public ProfileCatalog(IngestionProperties properties, TransformRegistry transforms,
+    public ProfileCatalog(IngestionProperties properties,
                           com.jenbrick.fileadapter.projection.ProjectionEngine projections) {
         this.properties = properties;
         var ids = new HashSet<String>();
@@ -24,33 +22,14 @@ public class ProfileCatalog {
             }
             matcher(profile.filenamePattern());
             LayoutValidator.validate(profile.layout());
-            if (profile.projection() != null) {
-                try { projections.validate(profile.projection()); }
-                catch (IllegalArgumentException e) { throw new IllegalArgumentException("Invalid projection " + profile.id() + ": " + e.getMessage(),e); }
-                projections.validateEnrichers(profile);
-                continue;
+            if (profile.projection() == null) {
+                throw new IllegalArgumentException("Every profile requires a projection");
             }
-            if (profile.consent() != null) {
-                profile.consent().validate();
-                continue;
+            try { projections.validate(profile.projection()); }
+            catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Invalid projection " + profile.id() + ": " + e.getMessage(), e);
             }
-            if (profile.mappings() == null || profile.mappings().isEmpty() || profile.contract() == null) {
-                throw new IllegalArgumentException("Profile requires mappings and an output contract");
-            }
-            var paths = new HashSet<String>();
-            for (var field : profile.mappings()) {
-                JsonPaths.check(field.source());
-                JsonPaths.check(field.target());
-                if (!paths.add(field.target())) throw new IllegalArgumentException("Duplicate target path");
-                if (field.transforms() != null) field.transforms().forEach(transforms::require);
-            }
-            for (String path : paths) for (String other : paths) {
-                if (other.startsWith(path + ".")) throw new IllegalArgumentException("Overlapping target paths");
-            }
-            profile.contract().forEach(rule -> {
-                JsonPaths.check(rule.path());
-                if (rule.type() == null) throw new IllegalArgumentException("Contract field type is required");
-            });
+            projections.validateEnrichers(profile);
         }
     }
 

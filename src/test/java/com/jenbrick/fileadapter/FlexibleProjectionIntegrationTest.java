@@ -34,10 +34,10 @@ class FlexibleProjectionIntegrationTest {
     @Autowired ProfileCatalog profiles;
     @Autowired ProjectionEngine engine;
 
-    @ParameterizedTest @CsvSource({"csv,flexible-csv-v1","psv,flexible-pipe-v1","xml,flexible-xml-v1","json,flexible-json-v1","fw,flexible-fixed-v1"})
+    @ParameterizedTest @CsvSource({"csv,flexible-csv-v1","psv,flexible-pipe-v1","xml,flexible-xml-v1","json,flexible-json-v1","fw,flexible-fixed-v1","scsv,flexible-semicolon-v1","tsv,flexible-tab-v1","jsonl,flexible-json-lines-v1"})
     void allAdaptersReproduceTheUserSample(String extension,String profile)throws Exception{
         String file="flexible-consents."+extension;
-        String id=processor.process(Path.of("examples/flexible",file),profile,false);
+        String id=processor.process(Path.of("examples/flexible",file),null,false);
         assertThat(ledger.get(id).status()).isEqualTo("PREVIEWED");
         assertThat(ledger.count(id)).isEqualTo(1);
         var body=json.readTree(ledger.next(id,0).payload());
@@ -49,12 +49,13 @@ class FlexibleProjectionIntegrationTest {
         assertThat(body.at("/consents/1/consentManager/pin").asText()).isEqualTo("002");
         assertThat(body.at("/consents/2/coverage/0/policyHolderMiddleName").isNull()).isTrue();
         var preview=json.readTree(WORK.resolve("preview").resolve(id).resolve(file+".preview.json").toFile());
+        assertThat(preview.at("/source/profileId").asText()).isEqualTo(profile);
         assertThat(preview.at("/source/engineVersion").intValue()).isEqualTo(4);
         assertThat(preview.at("/source/requestBodyShape").asText()).isEqualTo("CONFIGURED_PROJECTION");
         assertThat(preview.at("/requestDetails/0/sourceRecordNumbers").toString()).isEqualTo("[1,2,3]");
-        assertThat(processor.process(Path.of("examples/flexible",file),profile,false)).isEqualTo(id);
+        assertThat(processor.process(Path.of("examples/flexible",file),null,false)).isEqualTo(id);
     }
-    @ParameterizedTest @CsvSource({"flexible-root-array-v1,expected-root-array.json","flexible-reshaped-v1,expected-reshaped.json"})
+    @ParameterizedTest @CsvSource({"flexible-root-array-v1,expected-root-array.json","flexible-reshaped-v1,expected-reshaped.json","flexible-contract-envelope-v1,expected-contract-envelope.json"})
     void changingOnlyConfigurationChangesTheJsonShape(String profile,String expected)throws Exception{
         String id=processor.process(Path.of("examples/flexible/flexible-consents.csv"),profile,false);
         assertThat(ledger.get(id).status()).isEqualTo("PREVIEWED");
@@ -65,6 +66,19 @@ class FlexibleProjectionIntegrationTest {
         assertThat(ledger.get(id).status()).isEqualTo("PREVIEWED");
         assertThat(ledger.count(id)).isEqualTo(3);
         assertThat(json.readTree(ledger.next(id,0).payload()).at("/person/firstName").asText()).isEqualTo("Alex");
+    }
+    @ParameterizedTest @CsvSource({"flexible-noheader.csv,expected-envelope.json","flexible-noheader.psv,expected-envelope.json","flexible-object.json,expected-object-envelope.json"})
+    void additionalLayoutsSelectAutomaticallyAndProduceExpectedJson(String file,String expected)throws Exception {
+        String id=processor.process(Path.of("examples/flexible",file),null,false);
+        assertThat(ledger.get(id).status()).isEqualTo("PREVIEWED");
+        assertThat(json.readTree(ledger.next(id,0).payload())).isEqualTo(json.readTree(Path.of("examples/flexible",expected).toFile()));
+    }
+    @Test void previewCanBeRecreatedFromSavedBodiesWithoutReadingInput()throws Exception {
+        String id=processor.process(Path.of("examples/flexible/flexible-consents.csv"),null,false);
+        Path preview=WORK.resolve("preview").resolve(id).resolve("flexible-consents.csv.preview.json");
+        String original=Files.readString(preview);Files.delete(preview);
+        processor.refreshPreviews();
+        assertThat(Files.readString(preview)).isEqualTo(original);
     }
     @Test void repeatedIdenticalRowsDoNotDuplicateConsentOrCoverage()throws Exception{
         var rows=json.readTree(Path.of("examples/flexible/flexible-consents.json").toFile());
@@ -102,7 +116,7 @@ class FlexibleProjectionIntegrationTest {
         assertThat(ledger.get(failed).status()).isEqualTo("FAILED");
     }
     @Test void projectionLimitsAndInvalidDefinitionsAreRejected()throws Exception{
-        var base=profiles.resolve(Path.of("flexible.csv"),null).projection();
+        var base=profiles.resolve(Path.of("flexible-consents.csv"),null).projection();
         var config=(ObjectNode)json.valueToTree(base);
         config.put("maxRecords",2);
         var limited=json.treeToValue(config,Projection.class);
@@ -116,7 +130,7 @@ class FlexibleProjectionIntegrationTest {
         assertThatThrownBy(()->engine.validate(unknown)).hasMessageContaining("enricher");
     }
     @Test void frozenEnrichmentIsReusedEvenIfTheOriginalRowCannotResolve()throws Exception{
-        var profile=profiles.resolve(Path.of("flexible.csv"),null);
+        var profile=profiles.resolve(Path.of("flexible-consents.csv"),null);
         String id=processor.process(Path.of("examples/flexible/flexible-consents.csv"),profile.id(),false);
         var row=json.createObjectNode().put("PROVIDER_CLINICAL_CONSENT_PREFERENCE","GRANT").put("PAYER_CONSENT_PREFERENCE","");
         var saved=engine.enrich(id,new SourceRecord(1,row),profile,com.jenbrick.fileadapter.config.IngestionProperties.Mode.PREVIEW);

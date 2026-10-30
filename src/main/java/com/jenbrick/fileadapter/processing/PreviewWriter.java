@@ -76,16 +76,6 @@ public class PreviewWriter {
                         : json.readTree(request.sourceRecords());
                 if (origins.size() == 1) generator.writeNumberField("sourceRecordNumber", request.sourceRecord());
                 else { generator.writeFieldName("sourceRecordNumbers"); json.writeTree(generator,origins); }
-                var body = json.readTree(request.payload());
-                if (snapshot.profile().projection() == null && body.isArray()) {
-                    generator.writeArrayFieldStart("consentTargets");
-                    for (var entry : body) generator.writeString(entry.path("consentTarget").asText());
-                    generator.writeEndArray();
-                    generator.writeNumberField("consentEntryCount", body.size());
-                } else if (snapshot.profile().projection() == null) {
-                    var target = body.get("consentTarget");
-                    if (target != null) generator.writeStringField("consentTarget", target.asText());
-                }
                 generator.writeEndObject();
                 after = request.number();
             }
@@ -108,17 +98,10 @@ public class PreviewWriter {
         source.put("runId", run.id());
         source.put("contentSha256", run.contentHash());
         source.put("requestCount", ledger.count(run.id()));
-        if (snapshot.profile().projection() != null) {
-            source.put("engineVersion",snapshot.engineVersion());
-            source.put("projectionVersion",snapshot.profile().projection().version());
-            source.put("projectionScope",snapshot.profile().projection().scope().name());
-            source.put("requestBodyShape","CONFIGURED_PROJECTION");
-        } else if (snapshot.profile().consent() != null) {
-            source.put("engineVersion", snapshot.engineVersion());
-            source.put("consentRuleVersion", snapshot.profile().consent().version());
-            source.put("requestBodyShape", snapshot.engineVersion() >= 3
-                    ? "MEMBER_CONSENT_ARRAY" : "LEGACY_CONSENT_OBJECT");
-        }
+        source.put("engineVersion", snapshot.engineVersion());
+        source.put("projectionVersion", snapshot.profile().projection().version());
+        source.put("projectionScope", snapshot.profile().projection().scope().name());
+        source.put("requestBodyShape", "CONFIGURED_PROJECTION");
         if (layout.format() == Profile.Format.DELIMITED) {
             source.put("delimiter", layout.delimiter());
             source.put("headerMode", layout.headerMode().name());

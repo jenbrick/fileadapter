@@ -97,7 +97,7 @@ public class ProjectionEngine {
         try {
             JsonNode result;
             if(node.source()!=null) {
-                var mapping=new Profile.FieldMapping(node.source(),"value",node.required(),node.blankPolicy(),
+                var mapping=new Profile.ScalarMapping(node.source(),node.required(),node.blankPolicy(),
                         node.defaultValue(),node.transforms(),node.values());
                 result=null;
                 for(var row:rows) {

@@ -36,18 +36,21 @@ Or select `flexible-reshaped-v1` to produce `payload.entries`, move the manager 
 
 The [working YAML](src/main/resources/application-flexible-demo.yml) defines scalar source mappings, transforms, constants/nulls, nested objects, filtered/grouped arrays, required fields and request scope. It also includes a per-record name-mapping example without any consent enrichment.
 
-## Use another adapter
+## Run every input format
 
 ```bash
-for file in flexible-consents.csv flexible-consents.psv flexible-consents.fw \
-            flexible-consents.xml flexible-consents.json; do
-  java -jar build/libs/fileadapter-0.1.0.jar \
-    --spring.profiles.active=flexible-demo \
-    --ingestion.file="examples/flexible/$file" || break
-done
+bash scripts/run-examples.sh
 ```
 
-All five formats produce the same JSON envelope. Headerless delimited layouts are also supported. Change source layout/aliases independently of output templates. Add a `FileFormatAdapter` for new physical syntax, a `RecordEnricher` for another lookup, or a `ValueTransform` for new scalar conversion.
+Runnable examples cover CSV and pipe with/without headers, semicolon, tab, fixed width, XML, JSON array, JSON object and JSON Lines. The runner also exercises root-array, root-contract-ID, reshaped and per-record output variants. See the [format matrix](docs/formats.md) for filenames, profile IDs and expected results.
+
+With Python 3 available, compare all packaged outputs against expected JSON:
+
+```bash
+python scripts/verify-examples.py
+```
+
+The flexible demo is the default Spring profile. Add a `FileFormatAdapter` for new physical syntax, a `RecordEnricher` for another lookup, or a `ValueTransform` for a new scalar conversion. A new delimiter or output shape is a configuration change.
 
 ## Build requirements
 
@@ -71,19 +74,12 @@ This POC uses one worker, persistent local work storage and a mounted LAN input 
 
 FILE scope supports bounded aggregation, not arbitrary-volume streaming: the example limit is 1,000 records, with a configurable maximum of 10,000. No batch atomicity, per-entry response handling, exactly-once transaction or distributed claiming is implied. Inputs, enrichment results, previews and archives can contain member data; use appropriate access and retention controls. Repository examples are synthetic.
 
-## Documentation and earlier examples
+## Documentation
 
-- [Developer walkthrough](docs/developer-walkthrough.md): primary team guide.
-- [Flexible mappings](docs/flexible-mappings.md): template syntax, grouping, enrichment and demos.
+- [Step-by-step code walkthrough and change guide](docs/developer-walkthrough.md): how to change layouts, delimiters, attributes, nesting and root arrays.
+- [Flexible mappings](docs/flexible-mappings.md): template syntax, grouping and enrichment.
+- [Runnable format matrix](docs/formats.md): all input examples and output variants.
 - [Architecture](docs/architecture.md) and [Mermaid source](docs/architecture.mmd).
-- [Formats](docs/formats.md) and [extensions](docs/extensions.md).
-- [Earlier specialized consent example](docs/consent.md): engine version 3, retained for compatibility; it uses the older per-row array contract.
-- [PowerPoint snapshot](docs/presentations/README.md): historical reference, not the current configurable contract.
+- [Extension points](docs/extensions.md) and [verification notes](docs/verification.md).
 
-The original employee mappings still run without a demo profile:
-
-```bash
-java -jar build/libs/fileadapter-0.1.0.jar --ingestion.file=examples/enrollment.csv
-```
-
-Existing consent fixtures remain runnable with `--spring.profiles.active=consent-demo`. They are deliberately separate from the latest flexible mapping example so stored older snapshots retain their behavior.
+The superseded employee mappings, specialized consent builder, old examples/scripts and PowerPoint have been removed. The flexible projection path is the only processing strategy. Previously saved flexible projection snapshots remain readable; earlier engine versions 1–3 require the previous Git revision. Keep old work directories until delivery status is resolved. Configuration changes create new run identities, so do not automatically re-submit old LIVE inputs.

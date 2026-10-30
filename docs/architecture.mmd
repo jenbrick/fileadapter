@@ -6,14 +6,11 @@ flowchart TD
     Copy --> Identity
     Identity --> Adapter["FileFormatAdapter registry"]
     Adapter --> Normalize["Normalize physical fields and aliases"]
-    Normalize --> Strategy{"Mapping strategy"}
-    Strategy -->|Projection| Enrich["Named read-only RecordEnrichers"]
+    Normalize --> Enrich["Named read-only RecordEnrichers"]
     Enrich --> Frozen["Persist enriched records in H2"]
     Frozen --> Build["Configured object trees and filtered grouped collections"]
     Build --> Validate["Check group consistency, required fields and limits"]
-    Strategy -->|Earlier profiles| Legacy["Legacy path mapper or specialized consent planner"]
-    Legacy --> Stage["Stage complete request bodies and source provenance"]
-    Validate --> Stage
+    Validate --> Stage["Stage complete request bodies and source provenance"]
     Stage --> Ready["Entire file ready before delivery"]
     Ready --> Mode{"PREVIEW or LIVE"}
     Mode --> Preview["Named preview plus exact request JSON Lines"]

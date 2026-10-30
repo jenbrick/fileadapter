@@ -8,10 +8,6 @@ import org.springframework.stereotype.Component;
 /** Small explicit contract; replace/extend with the real API's schema when provided. */
 @Component
 public class RequestValidator {
-    public void validate(JsonNode request, Profile profile) {
-        validateFields(request, profile.contract());
-    }
-
     public void validateFields(JsonNode request, java.util.List<Profile.ContractField> rules) {
         if (rules == null) return;
         for (var rule : rules) {

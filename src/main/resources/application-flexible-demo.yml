@@ -5,7 +5,7 @@ ingestion:
   work-directory: ./var-flexible-demo
   profiles:
     - id: flexible-csv-v1
-      filename-pattern: flexible*.csv
+      filename-pattern: flexible-consents{,-header*}.csv
       layout:
         charset: UTF-8
         format: DELIMITED
@@ -15,17 +15,7 @@ ingestion:
         version: flexible-lookup-v1
         provider-target: PCDS
         payer-target: P2PDS
-        preferences:
-          GRANT: GRANT
-          RVOKE: RVOKE
-        relationships:
-          SELF: SELF
-          SPOUSE: SPOUSE
-          DEPENDENT: DEPENDENT
-          OTHER: OTHER
         date-pattern: uuuu-MM-dd
-        source-system: MDB
-        source-transaction-identifier: fileadapter
         lookup:
           mode: ${FLEXIBLE_LOOKUP_MODE:FIXTURE}
           endpoint: ${CONSENT_LOOKUP_URL:http://127.0.0.1:8082/members/resolve}
@@ -259,7 +249,7 @@ ingestion:
                       source: resolved.manager
                       required: true
     - id: flexible-pipe-v1
-      filename-pattern: flexible*.psv
+      filename-pattern: flexible-consents{,-header*}.psv
       layout:
         charset: UTF-8
         format: DELIMITED
@@ -277,7 +267,7 @@ ingestion:
       consent: *memberLookup
       projection: *consentProjection
     - id: flexible-json-v1
-      filename-pattern: flexible*.json
+      filename-pattern: flexible-consents{,-array*}.json
       layout:
         charset: UTF-8
         format: JSON
@@ -650,3 +640,76 @@ ingestion:
                   required: true
                   transforms:
                   - trim
+    - id: flexible-semicolon-v1
+      filename-pattern: flexible*.scsv
+      layout:
+        charset: UTF-8
+        format: DELIMITED
+        delimiter: ';'
+        header-mode: FIRST_RECORD
+      consent: *memberLookup
+      projection: *consentProjection
+    - id: flexible-tab-v1
+      filename-pattern: flexible*.tsv
+      layout:
+        charset: UTF-8
+        format: DELIMITED
+        delimiter: "\t"
+        header-mode: FIRST_RECORD
+      consent: *memberLookup
+      projection: *consentProjection
+    - id: flexible-csv-noheader-v1
+      filename-pattern: flexible-noheader*.csv
+      layout:
+        charset: UTF-8
+        format: DELIMITED
+        delimiter: ','
+        header-mode: NONE
+        columns: ["EXTERNAL_CONTRACT_ID", "RELATIONSHIP_CODE", "LAST_NAME", "FIRST_NAME", "MIDDLE_NAME", "GENDER_CODE", "DATE_OF_BIRTH", "EXTERNAL_GROUP_ID", "PROVIDER_CLINICAL_CONSENT_EFFECTIVE_DATE", "PROVIDER_CLINICAL_CONSENT_PREFERENCE", "PAYER_CONSENT_PREFERENCE_EFFECTIVE_DATE", "PAYER_CONSENT_PREFERENCE", "PAYER_NAME", "PAYER_ADDRESS_1", "PAYER_ADDRESS_2", "PAYER_CITY", "PAYER_STATE", "PAYER_ZIP", "PAYER_ID", "PAYER_POLICY_ID", "PAYER_GROUP_NUMBER", "PAYER_SUBSCRIBER_LAST_NAME", "PAYER_SUBSCRIBER_FIRST_NAME", "PAYER_SUBSCRIBER_MIDDLE_NAME", "PAYER_DATE_OF_BIRTH", "PAYER_GENDER_CODE", "PAYER_EFFECTIVE_DATE", "PAYER_CANCEL_DATE", "PAYER_PLAN_TYPE", "PAYER_COVERAGE_TYPE", "PROVIDER_SOURCE_SYSTEM", "PAYER_SOURCE_SYSTEM", "SOURCE_DATETIME", "SOURCE_USER"]
+      consent: *memberLookup
+      projection: *consentProjection
+    - id: flexible-psv-noheader-v1
+      filename-pattern: flexible-noheader*.psv
+      layout:
+        charset: UTF-8
+        format: DELIMITED
+        delimiter: '|'
+        header-mode: NONE
+        columns: ["EXTERNAL_CONTRACT_ID", "RELATIONSHIP_CODE", "LAST_NAME", "FIRST_NAME", "MIDDLE_NAME", "GENDER_CODE", "DATE_OF_BIRTH", "EXTERNAL_GROUP_ID", "PROVIDER_CLINICAL_CONSENT_EFFECTIVE_DATE", "PROVIDER_CLINICAL_CONSENT_PREFERENCE", "PAYER_CONSENT_PREFERENCE_EFFECTIVE_DATE", "PAYER_CONSENT_PREFERENCE", "PAYER_NAME", "PAYER_ADDRESS_1", "PAYER_ADDRESS_2", "PAYER_CITY", "PAYER_STATE", "PAYER_ZIP", "PAYER_ID", "PAYER_POLICY_ID", "PAYER_GROUP_NUMBER", "PAYER_SUBSCRIBER_LAST_NAME", "PAYER_SUBSCRIBER_FIRST_NAME", "PAYER_SUBSCRIBER_MIDDLE_NAME", "PAYER_DATE_OF_BIRTH", "PAYER_GENDER_CODE", "PAYER_EFFECTIVE_DATE", "PAYER_CANCEL_DATE", "PAYER_PLAN_TYPE", "PAYER_COVERAGE_TYPE", "PROVIDER_SOURCE_SYSTEM", "PAYER_SOURCE_SYSTEM", "SOURCE_DATETIME", "SOURCE_USER"]
+      consent: *memberLookup
+      projection: *consentProjection
+    - id: flexible-json-object-v1
+      filename-pattern: flexible-object*.json
+      layout:
+        charset: UTF-8
+        format: JSON
+        json:
+          mode: OBJECT
+      consent: *memberLookup
+      projection: *consentProjection
+    - id: flexible-json-lines-v1
+      filename-pattern: flexible*.jsonl
+      layout:
+        charset: UTF-8
+        format: JSON
+        json:
+          mode: LINES
+      consent: *memberLookup
+      projection: *consentProjection
+    - id: flexible-contract-envelope-v1
+      filename-pattern: variant-contract.unused
+      layout:
+        charset: UTF-8
+        format: DELIMITED
+        delimiter: ','
+        header-mode: FIRST_RECORD
+      consent: *memberLookup
+      projection:
+        <<: *consentProjection
+        version: flexible-contract-envelope-v1
+        root:
+          object:
+            contractId:
+              source: resolved.owner.contract
+              required: true
+            consents: *consentArray

@@ -2,7 +2,7 @@ package com.jenbrick.fileadapter;
 
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.jenbrick.fileadapter.config.Profile;
-import com.jenbrick.fileadapter.mapping.ConfigurableRequestMapper;
+import com.jenbrick.fileadapter.mapping.MappingValues;
 import com.jenbrick.fileadapter.mapping.RequestValidator;
 import com.jenbrick.fileadapter.mapping.TransformRegistry;
 import com.jenbrick.fileadapter.source.AdapterRegistry;
@@ -82,58 +82,45 @@ class AdapterAndMappingTest {
                 .hasMessageContaining("conflicting source aliases");
     }
 
-    @Test void mapsNestedTypesDefaultsAndPresencePolicies() {
-        var mapper = new ConfigurableRequestMapper(new TransformRegistry(List.of()));
-        var source = JsonNodeFactory.instance.objectNode()
-                .put("id", "001").put("blank", " ").putNull("explicitNull").put("amount", "12.50");
-        var fields = List.of(
-                mapping("id", "employeeId", true, null, null, List.of()),
-                mapping("blank", "contact.omitted", false, Profile.BlankPolicy.OMIT, null, List.of("trim")),
-                mapping("blank", "contact.cleared", false, Profile.BlankPolicy.NULL, null, List.of("trim")),
-                mapping("blank", "contact.empty", false, Profile.BlankPolicy.EMPTY, null, List.of("trim")),
-                mapping("explicitNull", "contact.explicitNull", false, null, null, List.of()),
-                mapping("missing", "active", false, null, "true", List.of("boolean")),
-                mapping("amount", "amount", false, null, null, List.of("decimal")));
-        var profile = new Profile("test", "*", null, fields, List.of());
-        var result = mapper.map(new SourceRecord(1, source), profile);
-        assertThat(result.get("employeeId").asText()).isEqualTo("001");
-        assertThat(result.at("/contact/omitted").isMissingNode()).isTrue();
-        assertThat(result.at("/contact/cleared").isNull()).isTrue();
-        assertThat(result.at("/contact/empty").asText()).isEmpty();
-        assertThat(result.at("/contact/explicitNull").isNull()).isTrue();
-        assertThat(result.get("active").isBoolean()).isTrue();
-        assertThat(result.get("amount").decimalValue()).isEqualByComparingTo("12.50");
+    @Test void scalarMappingPreservesDefaultsTypesAndPresencePolicies() {
+        var values = new MappingValues(new TransformRegistry(List.of()));
+        var source = JsonNodeFactory.instance.objectNode().put("id", "001").put("blank", " ")
+                .putNull("explicitNull").put("amount", "12.50");
+        assertThat(values.resolve(source, mapping("id", true, null, null, List.of())).asText()).isEqualTo("001");
+        assertThat(values.resolve(source, mapping("blank", false, Profile.BlankPolicy.OMIT, null, List.of("trim"))).isMissingNode()).isTrue();
+        assertThat(values.resolve(source, mapping("blank", false, Profile.BlankPolicy.NULL, null, List.of("trim"))).isNull()).isTrue();
+        assertThat(values.resolve(source, mapping("blank", false, Profile.BlankPolicy.EMPTY, null, List.of("trim"))).asText()).isEmpty();
+        assertThat(values.resolve(source, mapping("explicitNull", false, null, null, List.of())).isNull()).isTrue();
+        assertThat(values.resolve(source, mapping("missing", false, null, "true", List.of("boolean"))).isBoolean()).isTrue();
+        assertThat(values.resolve(source, mapping("amount", false, null, null, List.of("decimal"))).decimalValue()).isEqualByComparingTo("12.50");
     }
 
-    @Test void rejectsInvalidDatesAndRequiredMissingFieldsWithoutEchoingValues() {
-        var mapper = new ConfigurableRequestMapper(new TransformRegistry(List.of()));
-        var profile = new Profile("test", "*", null,
-                List.of(mapping("date", "date", true, null, null, List.of("us-date"))), List.of());
-        var source = JsonNodeFactory.instance.objectNode().put("date", "02/30/2027");
-        assertThatThrownBy(() -> mapper.map(new SourceRecord(3, source), profile))
-                .hasMessageContaining("Record 3").hasMessageNotContaining("02/30/2027");
-        assertThatThrownBy(() -> mapper.map(new SourceRecord(3,
-                JsonNodeFactory.instance.objectNode()), profile)).hasMessageContaining("Record 3");
+    @Test void rejectsInvalidDatesAndRequiredMissingFields() {
+        var values = new MappingValues(new TransformRegistry(List.of()));
+        var field = mapping("date", true, null, null, List.of("us-date"));
+        assertThatThrownBy(() -> values.resolve(JsonNodeFactory.instance.objectNode().put("date", "02/30/2027"), field))
+                .isInstanceOf(java.time.format.DateTimeParseException.class);
+        assertThatThrownBy(() -> values.resolve(JsonNodeFactory.instance.objectNode(), field))
+                .hasMessageContaining("missing");
     }
 
     @Test void validatesRequiredPathsNullabilityAndOutputTypes() {
         var validator = new RequestValidator();
-        var profile = new Profile("test", "*", null, List.of(), List.of(
-                new Profile.ContractField("person.id", Profile.ValueType.STRING, true, false)));
+        var rules = List.of(new Profile.ContractField("person.id", Profile.ValueType.STRING, true, false));
         var request = JsonNodeFactory.instance.objectNode();
-        assertThatThrownBy(() -> validator.validate(request, profile)).hasMessageContaining("missing");
+        assertThatThrownBy(() -> validator.validateFields(request, rules)).hasMessageContaining("missing");
         request.putObject("person").put("id", 42);
-        assertThatThrownBy(() -> validator.validate(request, profile)).hasMessageContaining("wrong type");
+        assertThatThrownBy(() -> validator.validateFields(request, rules)).hasMessageContaining("wrong type");
         ((com.fasterxml.jackson.databind.node.ObjectNode) request.get("person")).putNull("id");
-        assertThatThrownBy(() -> validator.validate(request, profile)).hasMessageContaining("cannot be null");
+        assertThatThrownBy(() -> validator.validateFields(request, rules)).hasMessageContaining("cannot be null");
     }
 
     private Profile.Layout layout(String delimiter, Profile.HeaderMode mode, List<String> columns) {
         return new Profile.Layout(Profile.Format.DELIMITED, "UTF-8", delimiter, mode, columns, Map.of());
     }
 
-    private Profile.FieldMapping mapping(String source, String target, boolean required,
+    private Profile.ScalarMapping mapping(String source, boolean required,
             Profile.BlankPolicy blank, String defaultValue, List<String> transforms) {
-        return new Profile.FieldMapping(source, target, required, blank, defaultValue, transforms, Map.of());
+        return new Profile.ScalarMapping(source, required, blank, defaultValue, transforms, Map.of());
     }
 }

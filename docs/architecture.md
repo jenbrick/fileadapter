@@ -11,14 +11,11 @@ flowchart TD
     Copy --> Identity
     Identity --> Adapter["FileFormatAdapter registry"]
     Adapter --> Normalize["Normalize physical fields and aliases"]
-    Normalize --> Strategy{"Mapping strategy"}
-    Strategy -->|Projection| Enrich["Named read-only RecordEnrichers"]
+    Normalize --> Enrich["Named read-only RecordEnrichers"]
     Enrich --> Frozen["Persist enriched records in H2"]
     Frozen --> Build["Configured object trees and filtered grouped collections"]
     Build --> Validate["Check group consistency, required fields and limits"]
-    Strategy -->|Earlier profiles| Legacy["Legacy path mapper or specialized consent planner"]
-    Legacy --> Stage["Stage complete request bodies and source provenance"]
-    Validate --> Stage
+    Validate --> Stage["Stage complete request bodies and source provenance"]
     Stage --> Ready["Entire file ready before delivery"]
     Ready --> Mode{"PREVIEW or LIVE"}
     Mode --> Preview["Named preview plus exact request JSON Lines"]
@@ -48,6 +45,6 @@ Editable source: [architecture.mmd](architecture.mmd).
 
 File syntax stays inside adapters. Optional named enrichers add source-side values without choosing output properties. Projection profiles select object structure, collection filtering/grouping, scalar conversions and FILE/RECORD request scope. No consent target, coverage or manager path is built into the generic projection engine.
 
-Enriched rows and final request bodies are persisted separately. Preflight validates the entire bounded file before any upsert. Recovery reuses saved configuration, enrichment and payloads, with aggregate source provenance. New projections use engine version 4; existing mapping strategies remain compatible with their older snapshots.
+Enriched rows and final request bodies are persisted separately. Preflight validates the entire bounded file before any upsert. Recovery reuses saved configuration, enrichment and payloads, with aggregate source provenance. Projection snapshots use engine version 4. The older object-path mapper and specialized consent planner have been removed; engine versions 1–3 require the previous release.
 
 The implementation is a bounded single-worker POC with local H2. FILE scope demonstrates aggregation across rows, not arbitrary-volume streaming. The service still owns batch semantics, acknowledgement, idempotency and business-level conflict rules. A JSON envelope is not a distributed transaction.

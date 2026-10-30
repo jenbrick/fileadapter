@@ -7,12 +7,12 @@ import com.fasterxml.jackson.databind.node.TextNode;
 import com.jenbrick.fileadapter.config.Profile;
 import org.springframework.stereotype.Component;
 
-/** Shared scalar semantics for legacy path mappings and configurable JSON projections. */
+/** Scalar conversion, defaults and presence policies for JSON projections. */
 @Component
 public class MappingValues {
     private final TransformRegistry transforms;
     public MappingValues(TransformRegistry transforms) { this.transforms = transforms; }
-    public JsonNode resolve(JsonNode source, Profile.FieldMapping field) {
+    public JsonNode resolve(JsonNode source, Profile.ScalarMapping field) {
         JsonNode value = JsonPaths.get(source, field.source());
         if (value.isMissingNode() && field.defaultValue() != null) value = TextNode.valueOf(field.defaultValue());
         if (value.isMissingNode()) {

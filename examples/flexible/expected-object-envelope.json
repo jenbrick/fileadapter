@@ -1,0 +1,27 @@
+{
+  "consents": [
+    {
+      "consentGuid": null,
+      "consentTarget": "PCDS",
+      "consentStatus": "GRANT",
+      "consentOwner": {
+        "contract": "123456789",
+        "pin": "001",
+        "contractMemberGuid": "MEMBER-GUID-001"
+      },
+      "effectiveDate": "2026-09-15",
+      "effectiveEndDate": null,
+      "coverage": [],
+      "transactionDetails": {
+        "sourceSystem": "MDB",
+        "sourceDateTime": "2026-10-28T09:00:00.000000",
+        "sourceTransactionIdentifier": "my.user.name"
+      },
+      "consentManager": {
+        "contract": "123456789",
+        "pin": "001",
+        "contractMemberGuid": "MEMBER-GUID-001"
+      }
+    }
+  ]
+}

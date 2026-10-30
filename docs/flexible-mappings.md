@@ -78,7 +78,7 @@ array:
 
 ### Scalar values
 
-Scalar nodes share the legacy mapper's value semantics:
+Scalar source nodes use these conversion rules:
 
 - `required` rejects missing, null or blank values.
 - `default-value` is a string applied to missing fields only.
@@ -171,16 +171,19 @@ It has no enrichers and maps names into `person.firstName` and `person.lastName`
 
 ## Demonstrate different file adapters
 
+The [format guide](formats.md) lists all 11 input layouts, their profile IDs and expected output bodies. Run every input plus the output variants:
+
 ```bash
-for file in flexible-consents.csv flexible-consents.psv flexible-consents.fw \
-            flexible-consents.xml flexible-consents.json; do
-  java -jar build/libs/fileadapter-0.1.0.jar \
-    --spring.profiles.active=flexible-demo \
-    --ingestion.file="examples/flexible/$file" || break
-done
+bash scripts/run-examples.sh
 ```
 
-All five layouts produce the same envelope. Fixed width uses illustrative 32-character fields without a header. XML selects `/members/member`; JSON selects one record per root-array element. The input JSON array is separate from the configurable output collection.
+For semantic comparison with expected JSON, after building the JAR:
+
+```bash
+python scripts/verify-examples.py
+```
+
+CSV/pipe with and without headers, semicolon, tab, fixed width, XML, JSON array, JSON object and JSON Lines have runnable fixtures. The single JSON object represents one member; the other formats contain the equivalent three-row dataset. Fixed width uses 32-character fields, XML selects `/members/member`, and input JSON mode is independent of output root shape.
 
 ## Enrichment extension
 
@@ -193,11 +196,11 @@ public interface RecordEnricher {
 }
 ```
 
-Configure `enrichers: [consent-member]` for the included example. That plugin reuses the existing `MemberResolver`, reads its lookup settings from `profile.consent`, and adds `resolved.owner`, `resolved.manager` and existing consent GUIDs. The `resolved` namespace is reserved by this plugin. The projection decides where those values appear in the output. It never invokes the old `ConsentRequestPlanner`.
+Configure `enrichers: [consent-member]` for the included example. That plugin reuses the existing `MemberResolver`, reads its lookup settings from `profile.consent`, and adds `resolved.owner`, `resolved.manager` and existing consent GUIDs. The `resolved` namespace is reserved by this plugin. The projection decides where those values appear in the output. Output shape is determined entirely by the template.
 
 `consent-member` uses the canonical uppercase field names shown in the example. Use `layout.fields` to normalize different physical source names before enrichment. Another domain can register a different enricher and omit `profile.consent` entirely. Enrichers must preserve row number, return an object, and keep external operations read-only.
 
-The fixture mode is explicitly a demo. LIVE refuses fixture member lookup. Set `FLEXIBLE_LOOKUP_MODE=HTTP` and `CONSENT_LOOKUP_URL` to exercise the proposed facade, with `CONSENT_LOOKUP_BEARER_TOKEN` for authentication. That facade is still a proposed integration contract, not the actual company API. `UPSERT_URL` and `UPSERT_BEARER_TOKEN` control delivery independently. The older `scripts/mock_consent_services.py` models legacy row-array delivery and does not validate the new envelope; use the live integration test or adapt the mock to the selected target contract.
+The fixture mode is explicitly a demo. LIVE refuses fixture member lookup. Set `FLEXIBLE_LOOKUP_MODE=HTTP` and `CONSENT_LOOKUP_URL` to exercise the proposed facade, with `CONSENT_LOOKUP_BEARER_TOKEN` for authentication. That facade is still a proposed integration contract, not the actual company API. `UPSERT_URL` and `UPSERT_BEARER_TOKEN` control delivery independently. The HTTP integration tests exercise the facade and delivery independently.
 
 ## Scope, persistence and limits
 
@@ -206,8 +209,8 @@ The fixture mode is explicitly a demo. LIVE refuses fixture member lookup. Set `
 - `skip-when-empty` is a dotted result path, or `$` for the root. If that value is missing/null or an empty container, no request is staged. Set it to `consents` for the supplied envelope.
 - Enriched rows are persisted in H2 before projection. Interrupted STAGING reuses saved lookup results; a crash before saving may repeat a read-only lookup.
 - The complete mapped request is staged before delivery. READY/resume sends the saved JSON without new lookup or mapping. Full-file validation still precedes any upsert.
-- A grouped request retains all contributing source row numbers. Named previews and delivery errors report `sourceRecordNumbers` for aggregates and the legacy singular field for a single-row request.
-- Projection configuration is in the immutable snapshot. New projections use engine version 4; old profile properties are omitted when absent, preserving legacy snapshots.
+- A grouped request retains all contributing source row numbers. Named previews and delivery errors report `sourceRecordNumbers` for aggregates and the singular field for a single-row request.
+- Projection configuration is in the immutable snapshot. Projection snapshots use engine version 4. Earlier flexible snapshots remain readable; engine versions 1–3 require the previous release.
 - The projection POC materializes a bounded file in memory. Set `max-records` from 1 to 10,000; the supplied examples use 1,000. Exceeding it fails before delivery. This is not an unbounded streaming aggregation engine.
 - Template trees allow at most 32 nesting levels and 1,024 configured nodes. There are no scripts, joins across unrelated sources, arbitrary expressions or distributed transactions.
 
@@ -219,8 +222,6 @@ Copy the full configuration to an external YAML file and supply it with `--sprin
 
 Version meaningful rule changes. Update the corresponding input/expected-output fixtures, run preview, and inspect the diff before pointing LIVE at a real service. The [developer walkthrough](developer-walkthrough.md) connects the configuration to the code.
 
-## Validation evidence
+## Validation
 
-The updated implementation passes 121 tests, including all earlier parser/mapping/delivery scenarios. New tests cover exact latest-sample output across five adapters, configuration-only shape variants, grouping and duplicate/conflict behavior, missing input fields, frozen enrichment, generic record scope, limits/invalid definitions, HTTP delivery, existing GUIDs and aggregate retry provenance.
-
-Packaged Java runs also verified all five source formats, both alternate shapes, and an external YAML wrapper change using the same JAR without rebuilding. These checks demonstrate mapping flexibility, not validation of an undisclosed production service contract.
+The retained tests exercise parsers, scalar conversions, required/type/nullability checks, exact sample output, alternate JSON shapes, grouping conflicts, enrichment snapshots and HTTP delivery/retry. The packaged verifier checks each supported input layout and output variant against expected JSON. See [verification notes](verification.md) for the checks performed for this cleanup.

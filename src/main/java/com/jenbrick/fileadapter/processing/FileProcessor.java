@@ -4,8 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jenbrick.fileadapter.config.IngestionProperties;
 import com.jenbrick.fileadapter.config.ProfileCatalog;
 import com.jenbrick.fileadapter.delivery.UpsertClient;
-import com.jenbrick.fileadapter.mapping.RequestMapper;
-import com.jenbrick.fileadapter.mapping.RequestValidator;
 import com.jenbrick.fileadapter.source.AdapterRegistry;
 import com.jenbrick.fileadapter.source.SourceNormalizer;
 import com.jenbrick.fileadapter.source.RecordFailure;
@@ -34,10 +32,7 @@ public class FileProcessor {
     private final ProfileCatalog profiles;
     private final AdapterRegistry adapters;
     private final SourceNormalizer normalizer;
-    private final RequestMapper mapper;
     private final com.jenbrick.fileadapter.projection.ProjectionEngine projections;
-    private final RequestValidator validator;
-    private final com.jenbrick.fileadapter.consent.ConsentRequestPlanner consentPlanner;
     private final UpsertClient client;
     private final ProcessingLedger ledger;
     private final ObjectMapper json;
@@ -47,24 +42,19 @@ public class FileProcessor {
 
     public FileProcessor(IngestionProperties properties, ProfileCatalog profiles,
                          AdapterRegistry adapters, SourceNormalizer normalizer,
-                         RequestMapper mapper, RequestValidator validator,
                          UpsertClient client, ProcessingLedger ledger, ObjectMapper json,
                          MeterRegistry metrics, PreviewWriter previews,
-                         com.jenbrick.fileadapter.consent.ConsentRequestPlanner consentPlanner,
                          com.jenbrick.fileadapter.projection.ProjectionEngine projections) {
         this.properties = properties;
         this.profiles = profiles;
         this.adapters = adapters;
         this.normalizer = normalizer;
-        this.mapper = mapper;
         this.projections = projections;
-        this.validator = validator;
         this.client = client;
         this.ledger = ledger;
         this.json = json;
         this.metrics = metrics;
         this.previews = previews;
-        this.consentPlanner = consentPlanner;
         this.work = properties.workDirectory().toAbsolutePath().normalize();
         validateDelivery(properties.delivery());
     }
@@ -75,7 +65,7 @@ public class FileProcessor {
             throw new IllegalArgumentException("Input must be a regular file, not a symbolic link");
         }
         var profile = profiles.resolve(input, profileId);
-        var snapshot = new RunSnapshot(profile.projection() != null ? 4 : profile.consent() == null ? 1 : 3, profile, properties.mode(), properties.delivery());
+        var snapshot = new RunSnapshot(4, profile, properties.mode(), properties.delivery());
         String config = json.writeValueAsString(snapshot);
         Files.createDirectories(work.resolve("processing"));
         Path temporary = Files.createTempFile(work.resolve("processing"), "staging-", ".tmp");
@@ -122,19 +112,27 @@ public class FileProcessor {
         }
     }
 
-    /** Upgrade old preview artifacts from saved payloads, without reparsing or POSTing. */
+    /** Recreate missing projection previews from saved bodies without parsing or POSTing. */
     @EventListener(ApplicationReadyEvent.class)
     public synchronized void refreshPreviews() {
         for (String id : ledger.previewedRuns()) {
             var run = ledger.get(id);
             if (previews.exists(run)) continue;
             try {
-                RunSnapshot snapshot = json.readValue(run.snapshot(), RunSnapshot.class);
+                RunSnapshot snapshot = readSnapshot(run.snapshot());
                 previews.write(run, snapshot);
             } catch (Exception e) {
                 log.warn("Preview refresh for run {} failed ({})", id, e.getClass().getSimpleName());
             }
         }
+    }
+
+    private RunSnapshot readSnapshot(String saved) throws IOException {
+        var tree = json.readTree(saved);
+        if (tree.path("engineVersion").asInt() != 4 || !tree.path("profile").path("projection").isObject()) {
+            throw new IllegalStateException("This POC supports projection snapshots only; use the previous release for older runs");
+        }
+        return json.treeToValue(tree, RunSnapshot.class);
     }
 
     private boolean execute(String id, boolean manual) throws IOException {
@@ -143,20 +141,14 @@ public class FileProcessor {
         if (run.status().equals("COMPLETED")) return true;
         if (run.status().equals("PREVIEWED")) {
             if (!previews.exists(run)) {
-                previews.write(run, json.readValue(run.snapshot(), RunSnapshot.class));
+                previews.write(run, readSnapshot(run.snapshot()));
             }
             return true;
         }
         if (run.status().equals("FAILED")) return false;
         if (run.status().equals("PAUSED") && !manual) return false;
-        RunSnapshot snapshot = json.readValue(run.snapshot(), RunSnapshot.class);
-        if (snapshot.engineVersion() < 1 || snapshot.engineVersion() > 4) throw new IllegalStateException("Unsupported mapping engine version");
+        RunSnapshot snapshot = readSnapshot(run.snapshot());
         if (run.status().equals("FINALIZING")) return finish(run, snapshot);
-        if (snapshot.engineVersion() == 2 && snapshot.profile().consent() != null
-                && snapshot.mode() == IngestionProperties.Mode.LIVE) {
-            pause(id, 0, "Legacy consent object payloads require reconciliation and a new array run");
-            return false;
-        }
 
         if (run.status().equals("STAGING")) {
             long[] currentRecord = {0};
@@ -175,35 +167,13 @@ public class FileProcessor {
                             }
                             currentRecord[0] = source.number();
                             var normalized = normalizer.normalize(source, snapshot.profile().layout());
-                            if (snapshot.profile().projection() != null) {
-                                if (projectionRows.size() >= snapshot.profile().projection().maxRecords())
-                                    throw new RecordFailure("Projection record limit exceeded");
-                                projectionRows.add(projections.enrich(id,normalized,snapshot.profile(),snapshot.mode()));
-                                return;
-                            }
-                            var requests = snapshot.profile().consent() == null
-                                    ? java.util.List.of(mapper.map(normalized, snapshot.profile()))
-                                    : consentPlanner.plan(id, normalized, snapshot.profile().consent(), snapshot.mode(),
-                                            snapshot.engineVersion());
-                            java.util.List<? extends com.fasterxml.jackson.databind.JsonNode> requestsToStage = requests;
-                            if (snapshot.profile().consent() != null && snapshot.engineVersion() >= 3) {
-                                requestsToStage = requests.isEmpty() ? java.util.List.of()
-                                        : java.util.List.of(json.valueToTree(requests));
-                            }
-                            for (var request : requestsToStage) {
-                                if (snapshot.profile().consent() == null) validator.validate(request, snapshot.profile());
-                                try {
-                                    ledger.stage(id, ++requestNumber[0], source.number(), json.writeValueAsString(request));
-                                } catch (IOException e) {
-                                    throw new IllegalStateException("Request serialization failed", e);
-                                }
-                            }
+                            if (projectionRows.size() >= snapshot.profile().projection().maxRecords())
+                                throw new RecordFailure("Projection record limit exceeded");
+                            projectionRows.add(projections.enrich(id, normalized, snapshot.profile(), snapshot.mode()));
                         });
                 if (currentRecord[0] == 0) throw new IllegalArgumentException("No data records");
-                if (snapshot.profile().projection() != null) {
-                    for (var request : projections.project(projectionRows,snapshot.profile().projection())) {
-                        ledger.stage(id,++requestNumber[0],request.sourceRecords(),json.writeValueAsString(request.body()));
-                    }
+                for (var request : projections.project(projectionRows, snapshot.profile().projection())) {
+                    ledger.stage(id, ++requestNumber[0], request.sourceRecords(), json.writeValueAsString(request.body()));
                 }
                 ledger.status(id, "READY", null);
             } catch (Exception e) {

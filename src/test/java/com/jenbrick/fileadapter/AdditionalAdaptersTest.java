@@ -174,7 +174,7 @@ class AdditionalAdaptersTest {
         assertThat(result.get("escaped").asText()).isEqualTo("escaped");
     }
 
-    @Test void oldCsvLayoutSnapshotSerializesIdenticallyAndRemainsReadable() throws Exception {
+    @Test void delimitedLayoutSnapshotRoundTrips() throws Exception {
         String previous = """
                 {"charset":"UTF-8","columns":null,"delimiter":",","fields":{},
                  "format":"DELIMITED","headerMode":"FIRST_RECORD"}
