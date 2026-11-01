@@ -108,18 +108,7 @@ An outside process handles customer transmission and IT email. Customer remarks 
 
 A later LIVE hard failure cannot roll back requests already acknowledged by the service. Record those successes accurately and stop/reconcile the remaining work. Never return already accepted rows as failed simply because a later batch failed.
 
-## 6. Four-week delivery sequence
-
-| Week | Main work | Exit condition |
-| --- | --- | --- |
-| 1 | Confirm required feeds and API contracts; wire intake, CSV, group and member lookup; draft the internal model and output fixtures | One representative file reaches real lookup services in the test environment and produces reviewed JSON. |
-| 2 | Implement contract/member/consent assembly, repeated payer rows, payload builders, limits and endpoint delivery | The vertical flow reaches the test upsert endpoint using the agreed request shape; both candidate builders have fixture coverage. |
-| 3 | Complete error isolation, same-format customer returns, IT diagnostics, durable status and controlled restart | Bad contracts and warnings have the right scope; acknowledged work is skipped during recovery. |
-| 4 | Finish remaining required formats, realistic-volume/failure testing, acceptance, deployment and runbook | The acceptance scenario passes and support can diagnose/reconcile a run. |
-
-Start tests, basic tracking and error handling with the first vertical slice. These weeks describe when capabilities are completed, not a reason to defer testing or persistence until the end. If an additional format is launch-critical, schedule it explicitly rather than leaving it as unplanned week-four work.
-
-## 7. Acceptance scenario
+## 6. Acceptance scenario
 
 Use synthetic records representing several contracts and multiple members per contract. Put some rows for the same contract in different parts of the file.
 
@@ -134,7 +123,7 @@ Use synthetic records representing several contracts and multiple members per co
 
 Also test malformed input, ambiguous member matching, incomplete group context, request limits and output-file write failure. Use measured representative file sizes; the initial design must have a documented supported limit.
 
-## 8. Defer from the first release
+## 7. Defer from the first release
 
 - Multiple workers and distributed claiming.
 - A configuration-management UI or a general transformation language.
