@@ -7,7 +7,9 @@ flowchart TD
     Identity --> Adapter["FileFormatAdapter registry"]
     Adapter --> Raw["Persist original source values and fixed-width raw text"]
     Raw --> Normalize["Normalize fields and evaluate severity rules"]
-    Normalize --> Enrich["Named read-only RecordEnrichers"]
+    Normalize --> Group["GroupEnricher: external group ID to group service"]
+    Group --> Context["Freeze internal group number and customer ID per run/group"]
+    Context --> Enrich["ConsentMemberEnricher: member-only payload plus group context"]
     Enrich --> Frozen["Persist enriched records in H2"]
     Frozen --> Batch["GROUPED: gather complete contracts; enforce row and member caps"]
     Batch --> Pack["One contract or capped contracts per request"]
@@ -29,7 +31,7 @@ flowchart TD
     Validate -->|MEDIUM contract invalid| Exclude["Record contract findings and omit rejected contracts"]
     Exclude --> Pack
     Normalize -->|SOFT| Warn["Save warning and continue"]
-    Warn --> Enrich
+    Warn --> Group
     Ack --> Finish["Archive after all requests complete"]
     Preview --> Finish
     Finish --> Results["Publish source-format customer returns plus code and remarks"]

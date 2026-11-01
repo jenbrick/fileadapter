@@ -22,7 +22,7 @@ classDiagram
     class ConsentMemberEnricher
     class MemberResolver {
         <<interface>>
-        +resolve(criteria, settings) Resolution
+        +resolve(memberPayload, settings) Resolution
     }
     class ConfiguredMemberResolver
     ProjectionEngine ..> Projection : interprets template

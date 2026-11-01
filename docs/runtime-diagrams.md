@@ -1,6 +1,6 @@
 # Runtime sequence and class diagrams
 
-These diagrams describe the flexible implementation, including the two bounded [contract batching](contract-batching.md) candidates. The happy path now follows GROUPED scope; FILE and RECORD remain alternate mapping scopes. “Projection” means the configured output mapping. See the [CSV debugger walkthrough](csv-debug-walkthrough.md) for breakpoints, sample values and runnable commands.
+These diagrams describe the flexible implementation with [group-first member-only lookup](group-member-lookups.md), including the two bounded [contract batching](contract-batching.md) candidates. The happy path now follows GROUPED scope; FILE and RECORD remain alternate mapping scopes. “Projection” means the configured output mapping. See the [CSV debugger walkthrough](csv-debug-walkthrough.md) for breakpoints, sample values and runnable commands.
 
 The simple sequence assumes a new run, valid input, LIVE with HTTP enrichment, successful preparation and an acknowledged POST. The combined collaborator labels keep that overview readable; they are not additional Java classes. The detailed sequences separate preparation from delivery so each stays within five participants. Class diagrams show selected real classes and dependencies, omitting framework infrastructure and most configuration records.
 
@@ -17,7 +17,10 @@ sequenceDiagram
     I->>P: process(input, profileId, consume)
     P->>P: Resolve profile, copy input, hash and save snapshot
     P->>L: create run (STAGING)
-    P->>M: Read CSV and save original rows; normalize and enrich
+    P->>M: Read CSV and save originals; normalize source names
+    M->>M: Resolve external group ID first
+    M->>L: Freeze internal group number and customer ID per run/group
+    M->>M: Member-only demographics lookup with group context
     M->>L: Save enriched rows
     P->>M: project(rows, GROUPED projection)
     M->>M: Gather whole contracts and enforce row/member caps
@@ -79,8 +82,8 @@ sequenceDiagram
                     alt Saved enriched row exists
                         L-->>M: Reuse enriched payload
                     else Not yet saved
-                        M->>M: Run configured enrichment and lookup
-                        M->>L: Save enriched payload
+                        M->>M: Resolve group context, then member-only demographics
+                        M->>L: Save group context per run/group and enriched row
                     end
                 end
                 P->>M: project using FILE, RECORD or GROUPED scope
@@ -294,7 +297,7 @@ classDiagram
     class ConsentMemberEnricher
     class MemberResolver {
         <<interface>>
-        +resolve(criteria, settings) Resolution
+        +resolve(memberPayload, settings) Resolution
     }
     class ConfiguredMemberResolver
     ProjectionEngine ..> Projection : interprets template
@@ -356,11 +359,12 @@ sequenceDiagram
     participant R as ResultPublisher and source-format writer
     participant O as Mounted outboxes
     P->>L: Capture original rows before normalization
-    P->>C: Validate, enrich and build bounded requests
+    P->>C: Validate, resolve group then member, build bounded requests
     alt HARD preparation failure
         C->>L: Record file-level finding and all parsed row references
         Note over P,C: Stop file before POST; preserve original input
     else MEDIUM contract failure
+        Note over P,C: A failed group lookup never calls member service
         C->>L: Record finding for every row in that contract
         C-->>P: Requests for viable contracts only
     else SOFT warning
@@ -435,11 +439,90 @@ classDiagram
 
 Editable source: [classes-results.mmd](diagrams/classes-results.mmd).
 
+## Group service before member demographics service
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant E as ProjectionEngine
+    participant G as GroupEnricher and GroupResolver
+    participant GS as Existing group service facade
+    participant M as ConsentMemberEnricher and MemberResolver
+    participant MS as Member demographics service facade
+    E->>G: enrichForRun(runId, normalized row)
+    alt Row has no consent changes
+        G-->>E: Unchanged row; no group lookup
+    else Active member row
+        G->>G: Read EXTERNAL_GROUP_ID; check saved run/group context
+        alt Context already saved for this run/group
+            G->>G: Reuse internal group number and customer ID
+        else First use of this group
+            G->>GS: POST externalGroupId only
+            GS-->>G: internalGroupNumber and customerId
+            G->>G: Validate and persist group context before member lookup
+        end
+        G-->>E: Row plus resolvedGroup
+    end
+    alt Valid group context and active member row
+        E->>M: enrich(row including resolvedGroup)
+        M->>M: Build typed member-only payload
+        Note over M,MS: Demographics/member identifiers plus internalGroupNumber and customerId
+        M->>MS: POST MemberLookupPayload only
+        MS-->>M: Internal contract, PIN and member GUID resolution
+        M->>M: Validate identities; add resolved owner and manager
+        M-->>E: Enriched record ready for projection
+        E->>E: Save enriched row; build configurable consent JSON later
+    else Group failure or incomplete context
+        E->>E: Apply HARD or MEDIUM enrichment policy; do not call member service
+    else No-change row
+        E->>E: Neither lookup is required
+    end
+    Note over G,MS: No payer/coverage data, consent preferences or upsert JSON enters member lookup
+```
+
+Editable source: [sequence-group-member.mmd](diagrams/sequence-group-member.mmd).
+
+## Class diagram: group/member lookup ports
+
+```mermaid
+classDiagram
+    direction TB
+    class ProjectionEngine
+    class GroupEnricher {
+        +enrichForRun(runId, source, profile, mode) SourceRecord
+    }
+    class ConsentMemberEnricher {
+        +enrich(source, profile, mode) SourceRecord
+    }
+    class GroupResolver {
+        <<interface>>
+        +resolve(externalGroupId, settings) Context
+    }
+    class ConfiguredGroupResolver
+    class GroupContextStore
+    class MemberResolver {
+        <<interface>>
+        +resolve(memberPayload, settings) Resolution
+    }
+    class ConfiguredMemberResolver
+    class MemberLookupPayload
+    ProjectionEngine --> GroupEnricher : first
+    ProjectionEngine --> ConsentMemberEnricher : second
+    GroupEnricher --> GroupResolver
+    GroupEnricher --> GroupContextStore
+    GroupResolver <|.. ConfiguredGroupResolver
+    ConsentMemberEnricher --> MemberResolver
+    ConsentMemberEnricher ..> MemberLookupPayload : nine allowed properties
+    MemberResolver <|.. ConfiguredMemberResolver
+```
+
+Editable source: [classes-group-member.mmd](diagrams/classes-group-member.mmd).
+
 ## How to read the alternate paths
 
 - Configuration validation happens during Spring startup, before file processing; invalid layouts, unknown enrichers and malformed templates can prevent startup.
 - A preflight exception ends preparation for that run. The diagram’s later PREVIEW/LIVE branches apply only after successful preparation.
 - HTTP acknowledgement defaults to status codes. The opt-in SCOPED_V1 adapter validates complete member/contract results and correlates them to source records. Neither protocol implies per-consent atomicity. See [error handling](error-handling.md).
 - Recovery automatically considers `STAGING`, `READY`, `DELIVERING` and `FINALIZING`. `PAUSED` needs explicit resume; `FAILED` is not resumed. Completed runs, including terminal `_WITH_ERRORS` runs, are reused for identical content and snapshot. Saved source rows/findings support reproducible result-file regeneration.
-- PREVIEW can perform HTTP lookups if configured. The default fixture demo performs neither lookup HTTP nor delivery HTTP. LIVE refuses fixture member enrichment.
+- PREVIEW can perform HTTP lookups if configured. The default fixture demo performs no group/member lookup HTTP or delivery HTTP. LIVE refuses fixture lookup at either stage. Group context is frozen per run/group; delivery recovery performs neither lookup.
 - Local stores use file-backed H2. Snapshots preserve configuration, enriched rows and request JSON for repeatable recovery. A stable idempotency key requires an agreement with the receiving service to make replay safe.

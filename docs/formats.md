@@ -80,3 +80,7 @@ Each expected fixture contains the complete list of request bodies, unlike the o
 All 11 input layouts have round-trip tests for the customer writer. It preserves original source values and appends `RESULT_CODE` / `RESULT_REMARKS`; headerless layouts stay headerless, fixed-width appends 16/160-character fields, XML uses new elements and JSON uses new properties. See [format details and limits](error-handling.md).
 
 `bash scripts/run-error-examples.sh` runs HARD, MEDIUM and SOFT CSV demos using `error-demo-hard-v1`, `error-demo-medium-v1` and `error-demo-soft-v1`. Expected returns are `expected-customer-hard.csv`, `expected-customer-medium.csv` and `expected-customer-soft.csv`. The Python verifier now runs **20 packaged cases** and compares these returns plus the IT manifests. The hard demo intentionally exits 1. A fourth `error-demo-service-v1` profile provides allowlisted result codes for opt-in LIVE member/contract response tests.
+
+## External group data in every format
+
+The input fixtures now populate EXTERNAL_GROUP_ID in all 11 layouts. Consent profiles run group-context then consent-member, using synthetic group/member fixtures in PREVIEW; the per-record person projection still has no lookups. All outgoing consent fixtures keep the same shapes/values. Expected customer result files include the original external group value. See [lookup ordering and payloads](group-member-lookups.md) for both HTTP stage settings and the strict member-only request.

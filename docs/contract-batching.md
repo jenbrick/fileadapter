@@ -84,7 +84,7 @@ The payer collection groups by `[resolved.owner.contractMemberGuid, PAYER_CONSEN
 
 `PAYER_CONSENT_KEY` is a lookup/grouping input and is not emitted in the JSON. With these profiles it must be populated whenever a payer preference is present. In another feed, use its true consent identifier or a configured discriminator. Do not generate separate consent identities from a row number or each coverage’s payer ID unless that is the agreed business model. The original profiles continue to demonstrate one payer consent per member with many coverages.
 
-The optional enricher forwards the key in HTTP lookup criteria. A real facade must return `payerConsentGuid` for **that member and that consent key** (and a consistent provider GUID for repeated member rows). The demo fixtures return null to illustrate inserts. Merely changing the grouping key cannot establish the correct identity of an existing consent; do not assume the old member-only lookup uniquely resolves multiple payer consents.
+The member-demographics request does not include PAYER_CONSENT_KEY or payer/consent fields. It uses the internal group number and customer ID obtained from the group service first. The demo consent GUIDs remain null to illustrate inserts. Resolving an existing GUID for each consent requires a separate consent-identity integration after member resolution. Merely changing a projection grouping key cannot establish that identity. See [group/member lookups](group-member-lookups.md).
 
 Whether the final service allows multiple P2PDS entries for a member, merges/replaces coverages, and accepts mixed GRANT/RVOKE entries remains a contract decision. Both the grouping and output tree are configurable so the POC can change with that decision.
 
@@ -132,3 +132,7 @@ Use the [updated diagrams](runtime-diagrams.md) and the [CSV debugger walkthroug
 ## Return failed source records
 
 The [error/result guide](error-handling.md) adds customer-facing original-record returns in each incoming format and comprehensive internal diagnostics. A contract rejection returns its original member/coverage rows with code/remarks appended; a reliably identified service member rejection returns only that member’s submitted source rows. A member’s multiple payer consents still map back to that member’s rows. Result files are separate from the consent request JSON and are handed off through outbox manifests.
+
+## Group context for members in each contract
+
+All active records now carry EXTERNAL_GROUP_ID and run group-context before consent-member. Group resolution supplies internal group number/customer ID for the member-only demographics request; it does not change the contract request boundary or JSON wrappers. The three-contract fixture uses EXT-GROUP-1/2/3. Several members/rows in the same group share one saved group resolution in that run. Customer return fixtures retain these original external group IDs along with code/remarks.

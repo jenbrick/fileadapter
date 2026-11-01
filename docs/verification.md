@@ -1,5 +1,14 @@
 # Verification notes
 
+## Group-first member lookup — November 1, 2026
+
+The ordered chain now resolves EXTERNAL_GROUP_ID through GroupResolver, freezes internal group number/customer ID per run/group, and then invokes MemberResolver with a typed nine-property member-only payload. Source and customer-return fixtures in all formats now include external group IDs; outgoing consent fixtures retain the same JSON.
+
+[GitHub Actions run 41328733959](https://github.com/jenbrick/fileadapter/actions/runs/41328733959) passed the complete Gradle build/tests and all 20 packaged examples for runtime commit `249be88`. GroupMemberLookupTest covers exact payload field allowlists, call order, shared group resolution, missing/failed/incomplete group context, delivery recovery and reuse after interrupted member lookup. Two additional checks verify MEDIUM group-failure contract isolation and LIVE refusal of fixture group lookup; the final workflow run checks these refinements too.
+
+Static validation includes Java syntax, lookup-chain order and group fixture constraints, all Markdown links and Mermaid/source consistency. The local Gradle download remains network-blocked, so GitHub CI provides full compilation, integration tests and packaged execution.
+
+
 ## Original-record result update — November 1, 2026
 
 Added durable original-source capture, HARD/MEDIUM/SOFT rules and contract isolation, incoming-format customer result files, internal diagnostics/outbox manifests, and opt-in correlated member/contract service results. The example verifier now runs 20 packaged cases, including the hard/medium/soft customer CSV fixtures. The original 17 mapping/input fixtures remain unchanged.

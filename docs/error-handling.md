@@ -111,7 +111,7 @@ errors:
 
 Rules run on normalized source fields before lookup. Conditions are `MISSING` (missing/null/blank) and `EQUALS` with `equals-value`. These are simple POC validation hooks, not a full rules language. Remarks are configured literal text. SOFT rules warn; they cannot make a failed parser, enrichment or JSON projection succeed.
 
-MEDIUM enrichment errors reject the configured source contract key. This key must be a stable, unambiguous contract identifier shared by its members and repeated rows. If a required contract identity is unavailable, handling escalates to HARD. If aliases/producers identify the same contract differently, normalize them to a common key first; a failed lookup cannot discover an alias it never resolved.
+MEDIUM enrichment errors, including either the group or member service stage, reject the configured source contract key. This key must be a stable, unambiguous contract identifier shared by its members and repeated rows. If a required contract identity is unavailable, handling escalates to HARD. If aliases/producers identify the same contract differently, normalize them to a common key first; a failed lookup cannot discover an alias it never resolved.
 
 MEDIUM projection handling requires GROUPED scope. Each resolved contract is checked independently before viable contracts are packed into final requests. A bad date, conflicting grouped value, or per-contract row/member limit can reject just that contract. Input syntax corruption, file record-limit overflow, missing grouping identity and infrastructure failures remain hard-file errors. All preparation finishes before any upsert.
 
@@ -130,7 +130,7 @@ java -jar build/libs/fileadapter-0.1.0.jar \
   --ingestion.delivery.response-contract=SCOPED_V1
 ```
 
-As with other LIVE demos, configure HTTP member lookup and the actual test URLs; fixture lookup is refused in LIVE. A configured successful HTTP status must have a body such as:
+As with other LIVE demos, configure both HTTP group and member lookup and the actual test URLs; either fixture lookup mode is refused in LIVE. A configured successful HTTP status must have a body such as:
 
 ```json
 {
@@ -185,3 +185,7 @@ The three preview examples use the same interleaved 8-row CSV:
 | `error-demo-service-v1` | Approved response-code mappings, no artificial validation rules | Intended for compatible LIVE service tests |
 
 Expected customer files are [hard](../examples/flexible/expected-customer-hard.csv), [medium](../examples/flexible/expected-customer-medium.csv) and [soft](../examples/flexible/expected-customer-soft.csv). The hard example intentionally exits 1; the runner accounts for that. Tests round-trip customer output through all 11 input layouts and exercise member-versus-contract responses and recovery.
+
+## Group and member lookup failures
+
+[group-context then consent-member](group-member-lookups.md) is now the ordered chain. EXTERNAL_GROUP_ID resolves to internal group/customer IDs before the member-only demographic payload is sent. Group failure or incomplete context prevents a member call; the configured enrichment severity applies. Group context is saved before member resolution and shared by that group's rows in the run. Customer files still use original records and their external group IDs; internal resolved group/customer data is not added to those files.

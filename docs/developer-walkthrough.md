@@ -113,12 +113,12 @@ This fragment belongs under `layout`. A nested XML/JSON value can be selected wi
 The example projection enables:
 
 ```yaml
-enrichers: [consent-member]
+enrichers: [group-context, consent-member]
 ```
 
 [ProjectionEngine.enrich()](../src/main/java/com/jenbrick/fileadapter/projection/ProjectionEngine.java) validates the input contract, reuses a saved enriched row if present, or invokes the selected [RecordEnricher](../src/main/java/com/jenbrick/fileadapter/projection/RecordEnricher.java) implementations in order.
 
-[ConsentMemberEnricher](../src/main/java/com/jenbrick/fileadapter/projection/ConsentMemberEnricher.java) reads canonical uppercase source fields, calls [MemberResolver](../src/main/java/com/jenbrick/fileadapter/consent/MemberResolver.java), validates the returned member identities, and adds:
+[GroupEnricher](../src/main/java/com/jenbrick/fileadapter/projection/GroupEnricher.java) first calls the group-service port with EXTERNAL_GROUP_ID and saves internalGroupNumber/customerId under `resolvedGroup`. [ConsentMemberEnricher](../src/main/java/com/jenbrick/fileadapter/projection/ConsentMemberEnricher.java) then creates a member-only demographic/identifier payload including that context, calls [MemberResolver](../src/main/java/com/jenbrick/fileadapter/consent/MemberResolver.java), validates the returned member identities, and adds:
 
 ```json
 {
@@ -140,9 +140,9 @@ enrichers: [consent-member]
 }
 ```
 
-The original logical fields remain alongside `resolved`. The namespace is reserved by this plugin. No consent preference means no member lookup for that row.
+The original logical fields remain alongside `resolvedGroup` and `resolved`. Both namespaces are reserved. No consent preference means neither group nor member lookup for that row. Group contexts are shared by external group ID within a run; member results remain saved per row.
 
-The demo uses synthetic fixtures. HTTP mode exercises a proposed lookup facade, not a discovered company API. Replace the resolver implementation to compose the real calls. Output nesting does not belong in the resolver.
+The demo uses synthetic group and member fixtures. HTTP mode provides separate POC facade contracts to adapt the existing group service and member demographics service. The member request excludes consent/payer fields and does not look up a payer consent by its key. See [the complete group/member walkthrough](group-member-lookups.md). Output nesting does not belong in either resolver.
 
 The outgoing audit timestamp in the supplied template comes from `SOURCE_DATETIME`, preserving the sample's offset-free value. `resolved.sourceDateTime` is another available source, not an automatic override of that mapping. Generated per-row times need deliberate handling when rows will be grouped.
 
@@ -384,7 +384,7 @@ Projection snapshots use engine version 4. Previously saved flexible snapshots r
 
 ## Error handling, original-record returns and service results
 
-`FileProcessor` now captures original `SourceRecord` values (and fixed-width raw text) through `ResultStore` before normalization. `PreparationCoordinator.prepare()` applies literal severity rules, performs enrichment, optionally isolates failed contracts, and returns the mapped requests. With no error policy, earlier HARD behavior remains. With MEDIUM handling, rejected contracts are removed before the remaining contracts are packed into requests.
+`FileProcessor` now captures original `SourceRecord` values (and fixed-width raw text) through `ResultStore` before normalization. `PreparationCoordinator.prepare()` applies literal severity rules, performs ordered group/member enrichment, optionally isolates failed contracts, and returns the mapped requests. With no error policy, earlier HARD behavior remains. With MEDIUM handling, rejected contracts are removed before the remaining contracts are packed into requests.
 
 At delivery, `HttpUpsertClient` defaults to status acknowledgement. Opting into SCOPED_V1 validates a complete service result; `ProcessingLedger` persists its structured issues with acknowledgement before `ServiceResultProcessor` maps them to source rows. Member rejection does not imply contract rejection when the response reliably identifies the member.
 

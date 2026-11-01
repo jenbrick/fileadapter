@@ -4,6 +4,12 @@ A Spring Boot / Gradle proof of concept for adapting files into configurable JSO
 
 Java 17 · Spring Boot 3.5.16 · Gradle Wrapper 8.14.3 · Jackson · Apache Commons CSV · local H2 ledger.
 
+## Group lookup before member lookup
+
+The consent profiles now run **external group ID → group service → internal group number + customer ID → member demographics service → contract/PIN/member GUID → consent JSON**. `GroupEnricher` runs before `ConsentMemberEnricher`. The member service receives only the typed member payload plus resolved group context; consent preferences, payer/coverage data and the upsert JSON are excluded.
+
+See [group and member lookup contracts](docs/group-member-lookups.md) for exact POC payloads, company-service adapter ports, fixtures and recovery. LIVE requires both `GROUP_LOOKUP_MODE=HTTP` / `GROUP_LOOKUP_URL` and `FLEXIBLE_LOOKUP_MODE=HTTP` / `CONSENT_LOOKUP_URL`; tokens are separate. The original format and batching demos still run in PREVIEW with both lookup stages using fixtures.
+
 ## Bounded contract requests: the two API candidates
 
 Use `flexible-contract-single-v1` for one complete contract with its members’ consents per POST, or `flexible-contract-array-v1` for an array of up to `CONTRACTS_PER_REQUEST` complete contracts (default 2). Both retain each member’s multiple payer-consent groups and each consent’s coverage collection. These are candidate request wrappers for the evolving endpoint.
@@ -91,7 +97,7 @@ Git Bash uses `./gradlew`; Command Prompt can use `gradlew.bat`. The artifact is
 
 ## Delivery, persistence and scope
 
-PREVIEW exports the selected request bodies; LIVE posts them with Jackson. Normal HTTP enrichment can run in PREVIEW, while fixture-based member enrichment is refused in LIVE. Use `UPSERT_URL` / `UPSERT_BEARER_TOKEN` for delivery, and the separate lookup variables described in the mapping guide.
+PREVIEW exports the selected request bodies; LIVE posts them with Jackson. Normal group/member HTTP enrichment can run in PREVIEW, while fixture-based lookup at either stage is refused in LIVE. Use `UPSERT_URL` / `UPSERT_BEARER_TOKEN` for delivery, and the separate group/member lookup variables described in the [lookup guide](docs/group-member-lookups.md).
 
 The worker validates and stages the bounded file before any upsert. `GROUPED` scope partitions complete contracts into bounded requests; `FILE` and `RECORD` remain available. It stores configuration snapshots, enriched rows, mapped payloads, source provenance and delivery state in H2. Resume uses saved bodies. Replay safety defaults to false and requires a service-side idempotency guarantee. Grouped requests track multiple contributing source rows.
 
@@ -103,6 +109,7 @@ FILE scope supports bounded aggregation, not arbitrary-volume streaming: the exa
 
 - [Runtime sequence and class diagrams](docs/runtime-diagrams.md): happy path, alternate paths, retries and extension interfaces.
 - [CSV debugger walkthrough](docs/csv-debug-walkthrough.md): breakpoints and data from receipt through consent delivery.
+- [Group then member lookup](docs/group-member-lookups.md): external group resolution and the member-only demographics payload.
 - [Customer results and IT diagnostics](docs/error-handling.md): same-format original-record returns, severity handling and service results.
 - [Contract batching and two JSON shapes](docs/contract-batching.md): complete-contract limits, multiple members and payer consents.
 - [Step-by-step code walkthrough and change guide](docs/developer-walkthrough.md): how to change layouts, delimiters, attributes, nesting and root arrays.

@@ -14,7 +14,9 @@ flowchart TD
     Identity --> Adapter["FileFormatAdapter registry"]
     Adapter --> Raw["Persist original source values and fixed-width raw text"]
     Raw --> Normalize["Normalize fields and evaluate severity rules"]
-    Normalize --> Enrich["Named read-only RecordEnrichers"]
+    Normalize --> Group["GroupEnricher: external group ID to group service"]
+    Group --> Context["Freeze internal group number and customer ID per run/group"]
+    Context --> Enrich["ConsentMemberEnricher: member-only payload plus group context"]
     Enrich --> Frozen["Persist enriched records in H2"]
     Frozen --> Batch["GROUPED: gather complete contracts; enforce row and member caps"]
     Batch --> Pack["One contract or capped contracts per request"]
@@ -36,7 +38,7 @@ flowchart TD
     Validate -->|MEDIUM contract invalid| Exclude["Record contract findings and omit rejected contracts"]
     Exclude --> Pack
     Normalize -->|SOFT| Warn["Save warning and continue"]
-    Warn --> Enrich
+    Warn --> Group
     Ack --> Finish["Archive after all requests complete"]
     Preview --> Finish
     Finish --> Results["Publish source-format customer returns plus code and remarks"]
@@ -74,3 +76,7 @@ Request partitioning happens before per-partition tree rendering. A later HARD p
 The [result subsystem](error-handling.md) saves source records before normalization and preserves their source-format representation independently of consent JSON. HARD rejects a file, MEDIUM isolates contracts, and SOFT records nonblocking warnings. Opt-in scoped service responses can reject a member without rejecting its whole contract when identities are reliable.
 
 `ResultStore` persists originals, identity indexes and deduplicated events; `PreparationCoordinator` applies policy; `ServiceResultProcessor` correlates persisted response issues; `ResultPublisher` uses `SourceResultWriter` to append customer code/remarks in the incoming format. It writes separate internal JSON with all findings. Immutable revisions and ready manifests are the handoff to outside customer-delivery/email processes. Incomplete sources and uncertain service outcomes do not publish an automatic customer return.
+
+## Ordered group/member enrichment
+
+GroupEnricher first resolves the file’s external group ID through the group-service port. GroupContextStore saves internal group number and customer ID per run/group. ConsentMemberEnricher then sends only a typed member demographic/identifier payload with that context to the member-service port. It receives the contract/PIN/member GUID identities used by JSON projection. No payer, consent preference, target flag or upsert object is sent to the demographics lookup. See [the full service contracts and recovery behavior](group-member-lookups.md).

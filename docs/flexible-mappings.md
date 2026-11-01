@@ -15,7 +15,7 @@ java -jar build/libs/fileadapter-0.1.0.jar \
   --ingestion.file=examples/flexible/flexible-consents.csv
 ```
 
-The profile disables polling, uses synthetic member lookup and PREVIEW, and writes to `var-flexible-demo`. Open the logged run's `flexible-consents.csv.preview.json`. The single request body should equal [expected-envelope.json](../examples/flexible/expected-envelope.json).
+The profile disables polling, uses synthetic group/member lookup and PREVIEW, and writes to `var-flexible-demo`. Open the logged run's `flexible-consents.csv.preview.json`. The single request body should equal [expected-envelope.json](../examples/flexible/expected-envelope.json).
 
 Three input rows represent two members. The second member appears twice with different payers. Mapping produces two provider entries and one payer consent containing two coverages. Repeated provider data is coalesced by configured grouping, not emitted once per physical row.
 
@@ -193,21 +193,25 @@ CSV/pipe with and without headers, semicolon, tab, fixed width, XML, JSON array,
 public interface RecordEnricher {
     String name();
     SourceRecord enrich(SourceRecord source, Profile profile, Mode mode);
+    // Optional run-aware override for durable lookup context:
+    default SourceRecord enrichForRun(String runId, SourceRecord source, Profile profile, Mode mode) {
+        return enrich(source, profile, mode);
+    }
 }
 ```
 
-Configure `enrichers: [consent-member]` for the included example. That plugin reuses the existing `MemberResolver`, reads its lookup settings from `profile.consent`, and adds `resolved.owner`, `resolved.manager` and existing consent GUIDs. The `resolved` namespace is reserved by this plugin. The projection decides where those values appear in the output. Output shape is determined entirely by the template.
+Configure `enrichers: [group-context, consent-member]`. GroupEnricher reads `profile.group`, resolves EXTERNAL_GROUP_ID through GroupResolver and adds `resolvedGroup.internalGroupNumber` / `resolvedGroup.customerId`. ConsentMemberEnricher uses those values in a typed member-only payload to MemberResolver, reads member settings from `profile.consent`, and adds `resolved.owner` / `resolved.manager` and nullable legacy consent GUIDs. Both namespaces are reserved. The projection decides where those values appear in the output. Output shape is determined entirely by the template.
 
 `consent-member` uses the canonical uppercase field names shown in the example. Use `layout.fields` to normalize different physical source names before enrichment. Another domain can register a different enricher and omit `profile.consent` entirely. Enrichers must preserve row number, return an object, and keep external operations read-only.
 
-The fixture mode is explicitly a demo. LIVE refuses fixture member lookup. Set `FLEXIBLE_LOOKUP_MODE=HTTP` and `CONSENT_LOOKUP_URL` to exercise the proposed facade, with `CONSENT_LOOKUP_BEARER_TOKEN` for authentication. That facade is still a proposed integration contract, not the actual company API. `UPSERT_URL` and `UPSERT_BEARER_TOKEN` control delivery independently. The HTTP integration tests exercise the facade and delivery independently.
+The fixture mode is explicitly a demo. LIVE refuses fixture lookup at either stage. Set `GROUP_LOOKUP_MODE=HTTP` and `GROUP_LOOKUP_URL` for group resolution, plus `FLEXIBLE_LOOKUP_MODE=HTTP` and `CONSENT_LOOKUP_URL` for member demographics. `GROUP_LOOKUP_BEARER_TOKEN` and `CONSENT_LOOKUP_BEARER_TOKEN` authenticate those calls independently. These are POC facade contracts to adapt to the actual company APIs; see [group/member payloads](group-member-lookups.md). `UPSERT_URL` and `UPSERT_BEARER_TOKEN` control delivery independently. The HTTP integration tests exercise the facade and delivery independently.
 
 ## Scope, persistence and limits
 
 - `FILE` groups the selected file into one request. `RECORD` projects each row independently and cannot combine coverages across rows.
 - The original example chooses FILE to demonstrate a multi-member envelope. The new contract profiles use GROUPED to bound requests, with one contract object or an array of contract objects. Transaction guarantees remain endpoint decisions.
 - `skip-when-empty` is a dotted result path, or `$` for the root. If that value is missing/null or an empty container, no request is staged. Set it to `consents` for the supplied envelope.
-- Enriched rows are persisted in H2 before projection. Interrupted STAGING reuses saved lookup results; a crash before saving may repeat a read-only lookup.
+- Successful group contexts are persisted once per run/external group ID, including before member resolution completes. Enriched rows are persisted in H2 before projection. Interrupted STAGING reuses saved lookup results; a crash before saving may repeat a read-only lookup.
 - The complete mapped request is staged before delivery. READY/resume sends the saved JSON without new lookup or mapping. Full-file validation still precedes any upsert.
 - A grouped request retains all contributing source row numbers. Named previews and delivery errors report `sourceRecordNumbers` for aggregates and the singular field for a single-row request.
 - Projection configuration is in the immutable snapshot. Projection snapshots use engine version 4. Earlier flexible snapshots remain readable; engine versions 1–3 require the previous release.
@@ -249,7 +253,7 @@ Rows are gathered by first-seen group key, including nonadjacent rows. A complet
 
 The single-contract root reads `resolved.owner.contract` as `contractId` and renders consent entries for that contract. The array root uses a collection grouped by that same contract path and places the single-contract object inside it. The root’s nested grouping remains necessary when more than one contract is selected; scalar contract IDs cannot agree across distinct contracts.
 
-The new payer collection additionally groups by `PAYER_CONSENT_KEY` within each member. The enricher forwards this optional source field to lookup; an HTTP facade must resolve the corresponding existing payer-consent GUID. The field is required by the new payer grouping, not by the legacy one-payer-consent-per-member profiles. It is not emitted automatically.
+The new payer collection additionally groups by `PAYER_CONSENT_KEY` within each member. The key remains local to projection and is not forwarded to the member demographics service. Existing per-consent GUID resolution requires a separate consent-identity extension; it cannot be inferred from the demographic request. The field is required by the new payer grouping, not by the legacy one-payer-consent-per-member profiles. It is not emitted automatically.
 
 `CONTRACTS_PER_REQUEST` (array demo only), `CONTRACT_MAX_ROWS` and `CONTRACT_MAX_MEMBERS` are environment-backed profile settings. These limits bound request composition, not JSON byte size. File preparation remains bounded and in memory; arbitrary-file streaming is not implemented.
 

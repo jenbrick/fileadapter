@@ -33,6 +33,7 @@ class GroupMemberLookupTest {
     static final AtomicInteger POSTS=new AtomicInteger();
     static volatile int groupStatus=200,memberStatus=200,upsertStatus=201;
     static volatile boolean incompleteGroup=false;
+    static volatile String failedGroup=null;
     static final HttpServer SERVER=server();
     @DynamicPropertySource static void config(DynamicPropertyRegistry r) {
         r.add("ingestion.work-directory",WORK::toString);r.add("GROUP_LOOKUP_URL",()->base()+"/group");
@@ -42,7 +43,8 @@ class GroupMemberLookupTest {
     @Autowired ProcessingLedger ledger;
     @Autowired ProjectionEngine engine;
     @Autowired ProfileCatalog profiles;
-    @BeforeEach void reset(){EVENTS.clear();GROUP_BODIES.clear();MEMBER_BODIES.clear();POSTS.set(0);groupStatus=200;memberStatus=200;upsertStatus=201;incompleteGroup=false;}
+    @Autowired GroupEnricher groupEnricher;
+    @BeforeEach void reset(){EVENTS.clear();GROUP_BODIES.clear();MEMBER_BODIES.clear();POSTS.set(0);groupStatus=200;memberStatus=200;upsertStatus=201;incompleteGroup=false;failedGroup=null;}
     @AfterAll static void stop(){SERVER.stop(0);}
     @Test void groupIsResolvedFirstAndMemberRequestContainsOnlyTheAllowedMemberFields()throws Exception {
         String id=run("ordered");assertThat(ledger.get(id).status()).isEqualTo("COMPLETED");
@@ -93,16 +95,38 @@ class GroupMemberLookupTest {
         var rows=input("no-change");for(var row:rows){((ObjectNode)row).put("PROVIDER_CLINICAL_CONSENT_PREFERENCE","");((ObjectNode)row).put("PAYER_CONSENT_PREFERENCE","");((ObjectNode)row).put("EXTERNAL_GROUP_ID","");}
         String id=process("no-change",rows);assertThat(ledger.get(id).status()).isEqualTo("COMPLETED");assertThat(EVENTS).isEmpty();
     }
+    @Test void failedGroupLookupCanIsolateOneContractUnderMediumPolicy()throws Exception {
+        failedGroup="EXT-GROUP-2";
+        String id=processor.process(Path.of("examples/flexible/contract-batches.csv"),"error-demo-service-v1",false);
+        assertThat(ledger.get(id).status()).isEqualTo("COMPLETED_WITH_ERRORS");
+        assertThat(GROUP_BODIES).hasSize(3);assertThat(MEMBER_BODIES).hasSize(5);assertThat(POSTS.get()).isEqualTo(1);
+        assertThat(MEMBER_BODIES).extracting(b->b.path("firstName").asText()).doesNotContain("Morgan","Taylor");
+    }
+    @Test void liveCannotUseFixtureGroupResolution()throws Exception {
+        var base=profiles.resolve(Path.of("flexible-consents.json"),null);
+        var group=new com.jenbrick.fileadapter.consent.GroupSettings("fixture","EXTERNAL_GROUP_ID",
+                new com.jenbrick.fileadapter.consent.GroupSettings.Lookup(
+                        com.jenbrick.fileadapter.consent.ConsentSettings.LookupMode.FIXTURE,null,null,null,List.of()));
+        var profile=new Profile(base.id(),base.filenamePattern(),base.layout(),base.consent(),base.projection(),base.errors(),group);
+        assertThatThrownBy(()->groupEnricher.enrich(new SourceRecord(1,input("fixture-refusal").get(0)),profile,IngestionProperties.Mode.LIVE))
+                .hasMessageContaining("LIVE refuses fixture group");
+        assertThat(EVENTS).isEmpty();
+    }
     String run(String name)throws Exception{return process(name,input(name));}
     static JsonNode input(String name)throws Exception {var rows=JSON.readTree(Path.of("examples/flexible/flexible-consents.json").toFile());for(var r:rows)((ObjectNode)r).put("TEST_CASE",name);return rows;}
     String process(String name,JsonNode rows)throws Exception {Path file=WORK.resolve(name+".json");JSON.writeValue(file.toFile(),rows);return processor.process(file,"flexible-json-v1",false);}
     static HttpServer server(){try{
         var server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
         server.createContext("/group",e->{EVENTS.add("GROUP");GROUP_BODIES.add(JSON.readTree(e.getRequestBody()));
-            var response=JSON.createObjectNode().put("internalGroupNumber","10001");if(!incompleteGroup)response.put("customerId","CUST-1");send(e,groupStatus,response);});
+            String external=GROUP_BODIES.get(GROUP_BODIES.size()-1).path("externalGroupId").asText();
+            int group=Integer.parseInt(external.replace("EXT-GROUP-",""));
+            var response=JSON.createObjectNode().put("internalGroupNumber",group+"000"+group);if(!incompleteGroup)response.put("customerId","CUST-"+group);
+            send(e,external.equals(failedGroup)?503:groupStatus,response);});
         server.createContext("/member",e->{EVENTS.add("MEMBER");var member=JSON.readTree(e.getRequestBody());MEMBER_BODIES.add(member);
-            String pin=member.path("externalContractId").asText().endsWith("001")?"001":"002";
-            var owner=JSON.createObjectNode().put("contract","123456789").put("pin",pin).put("contractMemberGuid","MEMBER-GUID-"+pin);
+            int person=Map.of("Alex",1,"John",2,"Morgan",3,"Taylor",4,"Jamie",5).get(member.path("firstName").asText());
+            String pin=String.format("%03d",person<=4?(person-1)%2+1:1);
+            var owner=JSON.createObjectNode().put("contract",person<=2?"123456789":person<=4?"222222222":"333333333").put("pin",pin)
+                    .put("contractMemberGuid",String.format("MEMBER-GUID-%03d",person));
             var response=JSON.createObjectNode();response.set("owner",owner);response.set("manager",owner);send(e,memberStatus,response);});
         server.createContext("/upsert",e->{EVENTS.add("UPSERT");POSTS.incrementAndGet();e.getRequestBody().readAllBytes();send(e,upsertStatus,JSON.createObjectNode());});server.start();return server;
     }catch(Exception e){throw new ExceptionInInitializerError(e);}}

@@ -1,0 +1,36 @@
+sequenceDiagram
+    autonumber
+    participant E as ProjectionEngine
+    participant G as GroupEnricher and GroupResolver
+    participant GS as Existing group service facade
+    participant M as ConsentMemberEnricher and MemberResolver
+    participant MS as Member demographics service facade
+    E->>G: enrichForRun(runId, normalized row)
+    alt Row has no consent changes
+        G-->>E: Unchanged row; no group lookup
+    else Active member row
+        G->>G: Read EXTERNAL_GROUP_ID; check saved run/group context
+        alt Context already saved for this run/group
+            G->>G: Reuse internal group number and customer ID
+        else First use of this group
+            G->>GS: POST externalGroupId only
+            GS-->>G: internalGroupNumber and customerId
+            G->>G: Validate and persist group context before member lookup
+        end
+        G-->>E: Row plus resolvedGroup
+    end
+    alt Valid group context and active member row
+        E->>M: enrich(row including resolvedGroup)
+        M->>M: Build typed member-only payload
+        Note over M,MS: Demographics/member identifiers plus internalGroupNumber and customerId
+        M->>MS: POST MemberLookupPayload only
+        MS-->>M: Internal contract, PIN and member GUID resolution
+        M->>M: Validate identities; add resolved owner and manager
+        M-->>E: Enriched record ready for projection
+        E->>E: Save enriched row; build configurable consent JSON later
+    else Group failure or incomplete context
+        E->>E: Apply HARD or MEDIUM enrichment policy; do not call member service
+    else No-change row
+        E->>E: Neither lookup is required
+    end
+    Note over G,MS: No payer/coverage data, consent preferences or upsert JSON enters member lookup

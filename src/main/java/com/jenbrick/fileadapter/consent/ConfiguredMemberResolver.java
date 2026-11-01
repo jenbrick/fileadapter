@@ -1,6 +1,5 @@
 package com.jenbrick.fileadapter.consent;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jenbrick.fileadapter.consent.ConsentSettings.Resolution;
 import java.net.http.HttpClient;
 import org.springframework.beans.factory.annotation.Value;

@@ -6,11 +6,12 @@ sequenceDiagram
     participant R as ResultPublisher and source-format writer
     participant O as Mounted outboxes
     P->>L: Capture original rows before normalization
-    P->>C: Validate, enrich and build bounded requests
+    P->>C: Validate, resolve group then member, build bounded requests
     alt HARD preparation failure
         C->>L: Record file-level finding and all parsed row references
         Note over P,C: Stop file before POST; preserve original input
     else MEDIUM contract failure
+        Note over P,C: A failed group lookup never calls member service
         C->>L: Record finding for every row in that contract
         C-->>P: Requests for viable contracts only
     else SOFT warning

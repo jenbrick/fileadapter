@@ -1,0 +1,29 @@
+classDiagram
+    direction TB
+    class ProjectionEngine
+    class GroupEnricher {
+        +enrichForRun(runId, source, profile, mode) SourceRecord
+    }
+    class ConsentMemberEnricher {
+        +enrich(source, profile, mode) SourceRecord
+    }
+    class GroupResolver {
+        <<interface>>
+        +resolve(externalGroupId, settings) Context
+    }
+    class ConfiguredGroupResolver
+    class GroupContextStore
+    class MemberResolver {
+        <<interface>>
+        +resolve(memberPayload, settings) Resolution
+    }
+    class ConfiguredMemberResolver
+    class MemberLookupPayload
+    ProjectionEngine --> GroupEnricher : first
+    ProjectionEngine --> ConsentMemberEnricher : second
+    GroupEnricher --> GroupResolver
+    GroupEnricher --> GroupContextStore
+    GroupResolver <|.. ConfiguredGroupResolver
+    ConsentMemberEnricher --> MemberResolver
+    ConsentMemberEnricher ..> MemberLookupPayload : nine allowed properties
+    MemberResolver <|.. ConfiguredMemberResolver

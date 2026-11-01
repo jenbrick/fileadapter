@@ -158,16 +158,18 @@ Back in the intake callback, inspect `currentRecord[0]` and `originalRows`. The 
 
 ## 10. Validate and enrich the row
 
-**Breakpoint:** `ProjectionEngine.enrich()`, then [ConsentMemberEnricher.enrich()](../src/main/java/com/jenbrick/fileadapter/projection/ConsentMemberEnricher.java).
+**Breakpoints:** `ProjectionEngine.enrich()`, `GroupEnricher.enrichForRun()`, then [ConsentMemberEnricher.enrich()](../src/main/java/com/jenbrick/fileadapter/projection/ConsentMemberEnricher.java).
 
 The engine validates the input contract, checks [EnrichedRecordStore](../src/main/java/com/jenbrick/fileadapter/projection/EnrichedRecordStore.java) by run ID and source record number, and reuses the saved payload if present. Otherwise it invokes each configured enricher by name.
 
-`ConsentMemberEnricher` detects which preferences are populated. A row with neither preference returns without a member lookup. For a populated row it builds lookup criteria from the canonical fields, trims values, validates required identity fields and parses date of birth. It includes the configured targets and `resolveProvider` / `resolvePayer` flags.
+`GroupEnricher` runs first. For a row with a preference, inspect EXTERNAL_GROUP_ID (`EXT-GROUP-1` in the original CSV). It checks GroupContextStore and, if absent for this run/group, calls GroupResolver with only that external group ID. Inspect the saved `resolvedGroup` values: internalGroupNumber `10001`, customerId `CUST-1`. Missing/incomplete group resolution prevents member lookup.
+
+`ConsentMemberEnricher` then builds MemberLookupPayload from demographic/member fields plus those resolved group values. Inspect the nine-property body in the [lookup guide](group-member-lookups.md). It trims strings, validates required identifiers and parses date of birth. There are no target/resolve flags, consent preferences, payer IDs/policies, payer consent keys or whole-record wrapper in this service request. A row with neither preference performs neither lookup.
 
 Step into [ConfiguredMemberResolver.resolve()](../src/main/java/com/jenbrick/fileadapter/consent/ConfiguredMemberResolver.java):
 
 - FIXTURE mode requires exactly one fixture match; this is the default demo.
-- HTTP mode POSTs criteria to the configured facade and requires HTTP 200 with a resolution body. This facade contract is the integration seam for the company lookup APIs.
+- HTTP mode POSTs only MemberLookupPayload to the configured member facade and requires HTTP 200 with a resolution body. This facade contract is the integration seam for the company lookup APIs.
 
 On return, the enricher validates owner and manager identities, including a three-character PIN, and adds `resolved` to a copy of the normalized record. For record 2, inspect:
 
@@ -190,7 +192,7 @@ On return, the enricher validates owner and manager identities, including a thre
 
 This is an excerpt of `enriched.payload().get("resolved")`; it also contains `sourceDateTime`. The working template takes its outgoing timestamp from CSV `SOURCE_DATETIME`, not that generated fallback. Null consent GUIDs remain explicit canonical lookup values.
 
-The engine persists the enriched payload before returning it. Lookups are saved per source row, not cached globally by member: records 2 and 3 can each perform a lookup on the first pass. The mapping later groups their resolved identities.
+The engine persists the enriched payload before returning it. Group context is frozen per run/external group ID: this sample makes one group-service call shared by all three rows. Member results are saved per source row, not cached globally by member: records 2 and 3 can each perform a demographic lookup on the first pass. The mapping later groups their resolved identities.
 
 ## 11. Finish reading and construct JSON
 
@@ -262,13 +264,14 @@ The processor sets FINALIZING, archives `input` and `snapshot.json` under `<work
 
 ## 14. Prepare HTTP lookup and LIVE settings
 
-The default fixture demo cannot simply be changed to LIVE: `ConsentMemberEnricher` explicitly refuses fixture-based member resolution in LIVE.
+The default fixture demo cannot simply be changed to LIVE: both GroupEnricher and ConsentMemberEnricher refuse their respective fixture modes in LIVE.
 
 When a compatible lookup facade and upsert endpoint are available, use their actual URLs. The lookup request/response contract is described in [the mapping guide](flexible-mappings.md). Set optional bearer-token environment variables there if required; do not commit credentials.
 
-For example, after supplying `CONSENT_LOOKUP_URL` and `UPSERT_URL` in your shell:
+For example, after supplying `GROUP_LOOKUP_URL`, `CONSENT_LOOKUP_URL` and `UPSERT_URL` in your shell:
 
 ```bash
+export GROUP_LOOKUP_MODE=HTTP
 export FLEXIBLE_LOOKUP_MODE=HTTP
 java -agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:5005 \
   -jar build/libs/fileadapter-0.1.0.jar \
@@ -350,7 +353,7 @@ After the batching filter removes no-change rows, step into `RequestBatcher.part
 
 Single mode partitions these into three requests. Array mode puts the first two complete contracts into one request and the remaining contract into a second request. Step back into `projectOne()` / `render()` for each partition. The array template adds a root collection grouped by contract; each contract has `contractId` and its member-owned `consents`.
 
-For John, payer group key `P2P-A` combines rows 2 and 4 into one GRANT consent with two coverages. Key `P2P-B` makes row 7 a second payer consent with RVOKE and one coverage. The provider group remains one PCDS entry. The optional source key is included in HTTP lookup criteria so a real facade can return that particular existing consent’s GUID; it is not an outgoing property.
+For John, payer group key `P2P-A` combines rows 2 and 4 into one GRANT consent with two coverages. Key `P2P-B` makes row 7 a second payer consent with RVOKE and one coverage. The provider group remains one PCDS entry. The optional payer-consent key stays in projection; it is not part of the demographic lookup or outgoing JSON. A separate consent-identity integration is needed to resolve existing per-consent GUIDs.
 
 Back at `ProcessingLedger.stage()`, inspect the request numbers and origins:
 
@@ -371,7 +374,8 @@ All bodies are prepared/staged before delivery. At `deliver()`, the key’s requ
 | `DelimitedFileAdapter.read` | Headers, record number and string-valued data |
 | `SourceNormalizer.normalize` | Physical versus canonical names |
 | `ProjectionEngine.enrich` | Input contract and saved enriched payload |
-| `ConsentMemberEnricher.enrich` | Criteria, owner, manager and consent GUIDs |
+| `GroupEnricher.enrichForRun` / `GroupContextStore` | External group ID, cached internal group and customer IDs |
+| `ConsentMemberEnricher.enrich` | Member-only payload, owner, manager and nullable legacy consent GUIDs |
 | `ConfiguredMemberResolver.resolve` | FIXTURE or HTTP resolution |
 | `ProjectionEngine.project` / `RequestBatcher.partition` / `render` | Scope, complete-contract partitions, limits and final JsonNode |
 | `ProcessingLedger.stage` | Complete saved body and source record list |

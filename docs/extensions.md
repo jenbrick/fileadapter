@@ -22,9 +22,9 @@ Register the adapter as a Spring `@Component`. Its format must be unique in `Ada
 
 ## Enrichment contract
 
-`RecordEnricher.name()` supplies the key selected by `projection.enrichers`. `validate(Profile)` checks plugin-specific configuration. `enrich(SourceRecord, Profile, Mode)` returns an object preserving the input record number. Add values under a documented namespace. Keep operations read-only because a crash before persistence can cause lookup repetition.
+`RecordEnricher.name()` supplies the key selected by `projection.enrichers`. `validate(Profile)` checks plugin-specific configuration. `enrich(SourceRecord, Profile, Mode)` returns an object preserving the input record number. An optional `enrichForRun(runId, ...)` override adds run-aware durable context; the default delegates to enrich. Add values under a documented namespace. Keep operations read-only because a crash before persistence can cause lookup repetition.
 
-The example `consent-member` plugin uses `Profile.consent` to configure its member resolver, target lookup hints and date handling. It adds `resolved.owner`, `resolved.manager`, consent GUIDs and a timestamp; it does not construct the HTTP request. To integrate company services, implement `MemberResolver` with those approved contracts rather than changing the projection engine.
+The example chain is `group-context` then `consent-member`. GroupEnricher uses Profile.group and GroupResolver to obtain/freeze internal group number and customer ID under resolvedGroup. ConsentMemberEnricher uses Profile.consent and MemberResolver for a typed member-only demographic/identifier payload with that context. It adds resolved owner/manager identities, nullable legacy consent GUIDs and a timestamp; templates construct the upsert JSON. Implement the existing group service contract behind GroupResolver and the member demographics API behind MemberResolver. Consent identity lookup, if needed, is a separate extension, not part of the demographic payload. See [the contracts](group-member-lookups.md).
 
 ## Scalar transform contract
 

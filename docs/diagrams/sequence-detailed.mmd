@@ -35,8 +35,8 @@ sequenceDiagram
                     alt Saved enriched row exists
                         L-->>M: Reuse enriched payload
                     else Not yet saved
-                        M->>M: Run configured enrichment and lookup
-                        M->>L: Save enriched payload
+                        M->>M: Resolve group context, then member-only demographics
+                        M->>L: Save group context per run/group and enriched row
                     end
                 end
                 P->>M: project using FILE, RECORD or GROUPED scope
