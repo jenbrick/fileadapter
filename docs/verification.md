@@ -6,7 +6,7 @@ Added explanations throughout the 51 production Java files, nine test classes, d
 
 Removed FileProcessor’s unused normalizer/projection dependencies after preparation moved to PreparationCoordinator, unused imports, and unused Profile/ledger constructor or method overloads. Saved-run deserialization support, database upgrades and the compatibility paths still used by recovery remain in place. The orchestration class diagrams and CSV breakpoint guide now show the coordinator dependency correctly.
 
-Static checks confirm the YAML values/workflow behavior are unchanged, every production class has an explanation, and all other Java changes beyond the five cleanup files are comments/whitespace only. Java syntax, shell/Python syntax, Markdown links and diagram/source consistency checks pass. The GitHub verification workflow checks the complete build, tests and 20 packaged examples for this cleanup.
+Static checks confirm the YAML values/workflow behavior are unchanged, every production class has an explanation, and all other Java changes beyond the five cleanup files are comments/whitespace only. Java syntax, shell/Python syntax, Markdown links and diagram/source consistency checks pass. [GitHub Actions run 41331692674](https://github.com/jenbrick/fileadapter/actions/runs/41331692674) passed the complete Gradle test suite, executable-JAR build and all **20 packaged examples** for cleanup commit `d491f6f`.
 
 
 ## Group-first member lookup — November 1, 2026
