@@ -44,6 +44,11 @@ public class HttpUpsertClient implements UpsertClient {
                 int status = response.getStatusCode().value();
                 // Do not persist response bodies: they may echo sensitive input values.
                 if (settings.successStatuses().contains(status)) {
+                    if("SCOPED_V1".equals(settings.responseContract())) {
+                        try {return new DeliveryResult(Outcome.ACKNOWLEDGED,status,
+                                com.jenbrick.fileadapter.results.ScopedResponseReader.read(response.getBody()));}
+                        catch(java.io.IOException e){return new DeliveryResult(Outcome.UNCERTAIN,status);}
+                    }
                     return new DeliveryResult(Outcome.ACKNOWLEDGED, status);
                 }
                 if (status >= 200 && status < 300) {

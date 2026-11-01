@@ -39,12 +39,21 @@ public class FileProcessor {
     private final MeterRegistry metrics;
     private final PreviewWriter previews;
     private final Path work;
+    private final com.jenbrick.fileadapter.results.ResultStore resultStore;
+    private final com.jenbrick.fileadapter.results.ResultPublisher resultPublisher;
+    private final com.jenbrick.fileadapter.results.PreparationCoordinator preparation;
+    private final com.jenbrick.fileadapter.results.ServiceResultProcessor serviceResults;
 
     public FileProcessor(IngestionProperties properties, ProfileCatalog profiles,
                          AdapterRegistry adapters, SourceNormalizer normalizer,
                          UpsertClient client, ProcessingLedger ledger, ObjectMapper json,
                          MeterRegistry metrics, PreviewWriter previews,
-                         com.jenbrick.fileadapter.projection.ProjectionEngine projections) {
+                         com.jenbrick.fileadapter.projection.ProjectionEngine projections,
+                         com.jenbrick.fileadapter.results.ResultStore resultStore,
+                         com.jenbrick.fileadapter.results.ResultPublisher resultPublisher,
+                         com.jenbrick.fileadapter.results.PreparationCoordinator preparation,
+                         com.jenbrick.fileadapter.results.ServiceResultProcessor serviceResults) {
+        this.resultStore=resultStore;this.resultPublisher=resultPublisher;this.preparation=preparation;this.serviceResults=serviceResults;
         this.properties = properties;
         this.profiles = profiles;
         this.adapters = adapters;
@@ -138,14 +147,15 @@ public class FileProcessor {
     private boolean execute(String id, boolean manual) throws IOException {
         var run = ledger.get(id);
         if (run == null) throw new IllegalArgumentException("Unknown run ID");
-        if (run.status().equals("COMPLETED")) return true;
-        if (run.status().equals("PREVIEWED")) {
+        if (run.status().equals("COMPLETED") || run.status().equals("COMPLETED_WITH_ERRORS")) {publishResults(id);return true;}
+        if (run.status().equals("PREVIEWED") || run.status().equals("PREVIEWED_WITH_ERRORS")) {
             if (!previews.exists(run)) {
                 previews.write(run, readSnapshot(run.snapshot()));
             }
+            publishResults(id);
             return true;
         }
-        if (run.status().equals("FAILED")) return false;
+        if (run.status().equals("FAILED")) {publishResults(id);return false;}
         if (run.status().equals("PAUSED") && !manual) return false;
         RunSnapshot snapshot = readSnapshot(run.snapshot());
         if (run.status().equals("FINALIZING")) return finish(run, snapshot);
@@ -153,26 +163,27 @@ public class FileProcessor {
         if (run.status().equals("STAGING")) {
             long[] currentRecord = {0};
             long[] requestNumber = {0};
-            var projectionRows = new java.util.ArrayList<com.jenbrick.fileadapter.source.SourceRecord>();
+            var originalRows = new java.util.ArrayList<com.jenbrick.fileadapter.source.SourceRecord>();
             try {
                 Path input = work.resolve("processing").resolve(id).resolve("input");
                 if (!hash(input).equals(run.contentHash())) {
                     throw new IllegalStateException("Staged input checksum mismatch");
                 }
                 ledger.clearRequests(id); // STAGING never sends requests; safe after interruption.
+                resultStore.reset(id);
                 adapters.require(snapshot.profile().layout().format()).read(input,
                         snapshot.profile().layout(), source -> {
                             if (source.number() <= currentRecord[0]) {
                                 throw new IllegalArgumentException("Adapter record numbers must increase from one");
                             }
                             currentRecord[0] = source.number();
-                            var normalized = normalizer.normalize(source, snapshot.profile().layout());
-                            if (projectionRows.size() >= snapshot.profile().projection().maxRecords())
+                            if (originalRows.size() >= snapshot.profile().projection().maxRecords())
                                 throw new RecordFailure("Projection record limit exceeded");
-                            projectionRows.add(projections.enrich(id, normalized, snapshot.profile(), snapshot.mode()));
+                            resultStore.capture(id,source);originalRows.add(source);
                         });
+                resultStore.complete(id);
                 if (currentRecord[0] == 0) throw new IllegalArgumentException("No data records");
-                for (var request : projections.project(projectionRows, snapshot.profile().projection())) {
+                for (var request : preparation.prepare(id,originalRows,snapshot.profile(),snapshot.mode())) {
                     ledger.stage(id, ++requestNumber[0], request.sourceRecords(), json.writeValueAsString(request.body()));
                 }
                 ledger.status(id, "READY", null);
@@ -195,7 +206,10 @@ public class FileProcessor {
         ProcessingLedger.Request request;
         while ((request = ledger.next(id, after)) != null) {
             after = request.number();
-            if (request.status().equals("ACKNOWLEDGED")) continue;
+            if (request.status().equals("ACKNOWLEDGED")) {
+                if(!applyAcknowledgement(id,request,snapshot))return false;
+                continue;
+            }
             if (!deliver(id, request, snapshot, manual)) return false;
         }
         ledger.status(id, "FINALIZING", null);
@@ -220,9 +234,11 @@ public class FileProcessor {
             attempts++;
             var result = client.post(json.readTree(request.payload()),
                     id + ":" + request.number(), settings);
-            ledger.result(id, request.number(), result.outcome().name(), result.httpStatus());
+            ledger.result(id, request.number(), result.outcome().name(), result.httpStatus(),
+                    json.writeValueAsString(result.issues()==null?java.util.List.of():result.issues()));
             metrics.counter("fileadapter.requests", "outcome", result.outcome().name()).increment();
-            if (result.outcome() == UpsertClient.Outcome.ACKNOWLEDGED) return true;
+            if (result.outcome() == UpsertClient.Outcome.ACKNOWLEDGED)
+                return applyAcknowledgement(id,ledger.next(id,request.number()-1),snapshot);
             if (result.outcome() == UpsertClient.Outcome.REJECTED) {
                 fail(id, "HTTP_REJECTED", request.number(), "HTTP status " + result.httpStatus());
                 return false;
@@ -247,6 +263,33 @@ public class FileProcessor {
         return false;
     }
 
+    private boolean applyAcknowledgement(String id,ProcessingLedger.Request request,RunSnapshot snapshot)throws IOException {
+        boolean hard;
+        try {hard=serviceResults.apply(id,request,snapshot.profile().errors());}
+        catch(IOException e) {
+            pause(id,request.number(),"Scoped service result requires reconciliation ("+e.getClass().getSimpleName()+")");
+            return false;
+        }
+        if(hard) {fail(id,"SERVICE_HARD",request.number(),"Service reported a file-level failure; prior acknowledgements cannot be rolled back");return false;}
+        return true;
+    }
+
+    private void publishResults(String id)throws IOException {
+        var saved=ledger.get(id);
+        if(saved!=null && (!resultStore.sources(id).isEmpty() || !resultStore.findings(id).isEmpty()))
+            resultPublisher.publish(saved,readSnapshot(saved.snapshot()));
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public synchronized void refreshResults() {
+        for(String id:ledger.reportableRuns())try {publishResults(id);}
+        catch(Exception e){log.warn("Result artifact refresh failed ({})",e.getClass().getSimpleName());}
+    }
+
+    private java.util.List<Long> allSourceNumbers(String id) {
+        return resultStore.sources(id).stream().map(com.jenbrick.fileadapter.results.ResultStore.Source::number).toList();
+    }
+
     private boolean finish(ProcessingLedger.Run run, RunSnapshot snapshot) throws IOException {
         Path source = work.resolve("processing").resolve(run.id());
         Path archive = work.resolve("archive").resolve(run.id());
@@ -256,6 +299,8 @@ public class FileProcessor {
             throw new IOException("Archived input missing; run remains recoverable");
         }
         String status = snapshot.mode() == IngestionProperties.Mode.PREVIEW ? "PREVIEWED" : "COMPLETED";
+        if(resultStore.rejected(run.id()))status+="_WITH_ERRORS";
+        resultPublisher.publish(new ProcessingLedger.Run(run.id(),run.filename(),run.contentHash(),run.snapshot(),status,null),snapshot);
         ledger.status(run.id(), status, null);
         metrics.counter("fileadapter.files", "status", status).increment();
         log.info("Run {} {} ({} records)", run.id(), status, ledger.count(run.id()));
@@ -263,17 +308,31 @@ public class FileProcessor {
     }
 
     private void fail(String id, String category, long record, String reason) throws IOException {
+        var acknowledged=new java.util.HashSet<Long>();
+        long after=0;ProcessingLedger.Request delivered;
+        while((delivered=ledger.next(id,after))!=null) {
+            after=delivered.number();if(!delivered.status().equals("ACKNOWLEDGED"))continue;
+            if(delivered.sourceRecords()==null)acknowledged.add(delivered.sourceRecord());
+            else for(var n:json.readTree(delivered.sourceRecords()))acknowledged.add(n.longValue());
+        }
+        var rejected=allSourceNumbers(id).stream().filter(n->!acknowledged.contains(n)).toList();
+        resultStore.add(id,new com.jenbrick.fileadapter.results.ResultStore.Finding("HARD","FILE","FILE_REJECTED",
+                "File processing failed; this record was not completed.",category+": "+reason,rejected,null));
         report(id, category, record, reason);
         ledger.status(id, "FAILED", category + ": " + reason);
         Path source = work.resolve("processing").resolve(id);
         Path target = work.resolve("errors").resolve(id).resolve("input-files");
         if (Files.exists(source)) atomicMove(source, target);
+        publishResults(id);
         log.warn("Run {} failed: {} at record {}", id, category, record);
     }
 
     private void pause(String id, long record, String reason) throws IOException {
         report(id, "PAUSED", record, reason);
         ledger.status(id, "PAUSED", reason);
+        resultStore.add(id,new com.jenbrick.fileadapter.results.ResultStore.Finding("HARD","FILE","DELIVERY_PENDING",
+                "Processing awaits reconciliation.",reason,java.util.List.of(),record));
+        publishResults(id);
         log.warn("Run {} paused at record {}", id, record);
     }
 
@@ -308,11 +367,12 @@ public class FileProcessor {
                         "reason", error.getClass().getSimpleName()));
         Files.deleteIfExists(Path.of(input + properties.readySuffix()));
         Files.delete(input);
+        resultPublisher.intakeRejected(target.resolve("input"),input.getFileName().toString(),error);
     }
 
     public boolean successful(String id) {
         var run = ledger.get(id);
-        return run != null && (run.status().equals("COMPLETED") || run.status().equals("PREVIEWED"));
+        return run != null && (java.util.Set.of("COMPLETED","PREVIEWED","COMPLETED_WITH_ERRORS","PREVIEWED_WITH_ERRORS").contains(run.status()));
     }
 
     private static void validateDelivery(IngestionProperties.Delivery delivery) {
@@ -322,6 +382,8 @@ public class FileProcessor {
                 || delivery.endpoint().getFragment() != null) {
             throw new IllegalArgumentException("Delivery requires an HTTP(S) endpoint without embedded credentials");
         }
+        if(delivery.responseContract()!=null && !delivery.responseContract().equals("SCOPED_V1"))
+            throw new IllegalArgumentException("Unknown response contract");
         if (delivery.maxAttempts() < 1 || delivery.maxAttempts() > 10
                 || delivery.connectTimeout() == null || delivery.connectTimeout().isNegative()
                 || delivery.connectTimeout().isZero() || delivery.readTimeout() == null

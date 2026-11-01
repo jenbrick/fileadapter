@@ -30,6 +30,12 @@ public class ProfileCatalog {
                 throw new IllegalArgumentException("Invalid projection " + profile.id() + ": " + e.getMessage(), e);
             }
             projections.validateEnrichers(profile);
+            if(profile.errors()!=null) {
+                profile.errors().validate();
+                if(profile.errors().projectionSeverity()==com.jenbrick.fileadapter.results.ErrorPolicy.Severity.MEDIUM
+                        && profile.projection().scope()!=com.jenbrick.fileadapter.projection.Projection.Scope.GROUPED)
+                    throw new IllegalArgumentException("MEDIUM projection handling requires GROUPED scope");
+            }
         }
     }
 

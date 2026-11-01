@@ -10,7 +10,14 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
 public record Profile(String id, String filenamePattern, Layout layout,
                       @JsonInclude(JsonInclude.Include.NON_NULL)
                       com.jenbrick.fileadapter.consent.ConsentSettings consent,
-                      com.jenbrick.fileadapter.projection.Projection projection) {
+                      com.jenbrick.fileadapter.projection.Projection projection,
+                      com.jenbrick.fileadapter.results.ErrorPolicy errors) {
+    @ConstructorBinding public Profile {}
+    public Profile(String id,String filenamePattern,Layout layout,
+                   com.jenbrick.fileadapter.consent.ConsentSettings consent,
+                   com.jenbrick.fileadapter.projection.Projection projection) {
+        this(id,filenamePattern,layout,consent,projection,null);
+    }
     public enum Format { DELIMITED, FIXED_WIDTH, XML, JSON }
     public enum HeaderMode { FIRST_RECORD, NONE }
     public enum BlankPolicy { OMIT, NULL, EMPTY, REJECT }

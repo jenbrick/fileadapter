@@ -10,7 +10,10 @@ public class ProcessingLedger {
 
     public record Run(String id, String filename, String contentHash, String snapshot,
                       String status, String error) {}
-    public record Request(long number, String payload, String status, int attempts, long sourceRecord, String sourceRecords) {
+    public record Request(long number, String payload, String status, int attempts, long sourceRecord, String sourceRecords, String responseIssues) {
+        public Request(long number,String payload,String status,int attempts,long sourceRecord,String sourceRecords) {
+            this(number,payload,status,attempts,sourceRecord,sourceRecords,null);
+        }
         public Request(long number,String payload,String status,int attempts,long sourceRecord) {
             this(number,payload,status,attempts,sourceRecord,null);
         }
@@ -35,6 +38,7 @@ public class ProcessingLedger {
                 """);
         jdbc.execute("ALTER TABLE ingestion_request ADD COLUMN IF NOT EXISTS source_record BIGINT");
         jdbc.execute("ALTER TABLE ingestion_request ADD COLUMN IF NOT EXISTS source_records CLOB");
+        jdbc.execute("ALTER TABLE ingestion_request ADD COLUMN IF NOT EXISTS response_issues CLOB");
     }
 
     public void create(String id, String filename, String contentHash, String snapshot) {
@@ -57,8 +61,12 @@ public class ProcessingLedger {
     }
 
     public List<String> previewedRuns() {
-        return jdbc.queryForList("SELECT id FROM ingestion_run WHERE status='PREVIEWED' ORDER BY updated_at",
+        return jdbc.queryForList("SELECT id FROM ingestion_run WHERE status IN ('PREVIEWED','PREVIEWED_WITH_ERRORS') ORDER BY updated_at",
                 String.class);
+    }
+
+    public List<String> reportableRuns() {
+        return jdbc.queryForList("SELECT id FROM ingestion_run WHERE status IN ('PREVIEWED','PREVIEWED_WITH_ERRORS','COMPLETED','COMPLETED_WITH_ERRORS','FAILED','PAUSED')",String.class);
     }
 
     public void status(String id, String status, String error) {
@@ -86,9 +94,9 @@ public class ProcessingLedger {
 
     public Request next(String id, long after) {
         var rows = jdbc.query("""
-                SELECT record_number,payload,status,attempts,COALESCE(source_record,record_number),source_records FROM ingestion_request
+                SELECT record_number,payload,status,attempts,COALESCE(source_record,record_number),source_records,response_issues FROM ingestion_request
                 WHERE run_id=? AND record_number>? ORDER BY record_number LIMIT 1
-                """, (rs, n) -> new Request(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getInt(4), rs.getLong(5), rs.getString(6)), id, after);
+                """, (rs, n) -> new Request(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getInt(4), rs.getLong(5), rs.getString(6),rs.getString(7)), id, after);
         return rows.isEmpty() ? null : rows.get(0);
     }
 
@@ -101,6 +109,11 @@ public class ProcessingLedger {
                 UPDATE ingestion_request SET status='SENDING',attempts=attempts+1
                 WHERE run_id=? AND record_number=?
                 """, id, record);
+    }
+
+    public void result(String id,long record,String status,Integer httpStatus,String issues) {
+        jdbc.update("UPDATE ingestion_request SET status=?,http_status=?,response_issues=? WHERE run_id=? AND record_number=?",
+                status,httpStatus,issues,id,record);
     }
 
     public void result(String id, long record, String status, Integer httpStatus) {

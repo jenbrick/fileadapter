@@ -1345,3 +1345,1338 @@ ingestion:
             any-present:
             - PROVIDER_CLINICAL_CONSENT_PREFERENCE
             - PAYER_CONSENT_PREFERENCE
+
+    # Original-record customer returns and scoped diagnostics.
+    - id: error-demo-medium-v1
+      filename-pattern: '*.error-medium'
+      layout:
+        charset: UTF-8
+        format: DELIMITED
+        delimiter: ','
+        header-mode: FIRST_RECORD
+      consent:
+        version: flexible-lookup-v1
+        provider-target: PCDS
+        payer-target: P2PDS
+        date-pattern: uuuu-MM-dd
+        lookup:
+          mode: ${FLEXIBLE_LOOKUP_MODE:FIXTURE}
+          endpoint: ${CONSENT_LOOKUP_URL:http://127.0.0.1:8082/members/resolve}
+          connect-timeout: 5s
+          read-timeout: 10s
+          fixtures:
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
+              FIRST_NAME: Alex
+              LAST_NAME: Example
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '123456789'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-001
+              manager:
+                contract: '123456789'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-001
+              providerConsentGuid: null
+              payerConsentGuid: null
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
+              FIRST_NAME: John
+              LAST_NAME: Smith
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '123456789'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-002
+              manager:
+                contract: '123456789'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-002
+              providerConsentGuid: null
+              payerConsentGuid: null
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
+              FIRST_NAME: Morgan
+              LAST_NAME: Chen
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '222222222'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-003
+              manager:
+                contract: '222222222'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-003
+              providerConsentGuid: null
+              payerConsentGuid: null
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
+              FIRST_NAME: Taylor
+              LAST_NAME: Reed
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '222222222'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-004
+              manager:
+                contract: '222222222'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-004
+              providerConsentGuid: null
+              payerConsentGuid: null
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-C
+              FIRST_NAME: Jamie
+              LAST_NAME: Lee
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '333333333'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-005
+              manager:
+                contract: '333333333'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-005
+              providerConsentGuid: null
+              payerConsentGuid: null
+      projection:
+        version: contract-array-v1
+        scope: GROUPED
+        max-records: 1000
+        enrichers:
+        - consent-member
+        input-contract:
+        - path: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+          type: STRING
+          required: true
+          nullable: true
+        - path: PAYER_CONSENT_PREFERENCE
+          type: STRING
+          required: true
+          nullable: true
+        skip-when-empty: $
+        root:
+          array:
+          - group-by:
+            - resolved.owner.contract
+            item:
+              object:
+                contractId:
+                  source: resolved.owner.contract
+                  required: true
+                consents:
+                  array:
+                  - where:
+                      source: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+                      present: true
+                    group-by:
+                    - resolved.owner.contractMemberGuid
+                    item:
+                      object:
+                        consentGuid:
+                          source: resolved.providerConsentGuid
+                          default-json: 'null'
+                        consentTarget:
+                          literal-json: '"PCDS"'
+                        consentStatus:
+                          source: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+                          required: true
+                          transforms:
+                          - trim
+                          - uppercase
+                          values:
+                            GRANT: GRANT
+                            RVOKE: RVOKE
+                        consentOwner:
+                          source: resolved.owner
+                          required: true
+                        effectiveDate:
+                          source: PROVIDER_CLINICAL_CONSENT_EFFECTIVE_DATE
+                          required: true
+                          transforms:
+                          - trim
+                          - iso-date
+                        effectiveEndDate:
+                          literal-json: 'null'
+                        coverage:
+                          literal-json: '[]'
+                        transactionDetails:
+                          object:
+                            sourceSystem:
+                              source: PROVIDER_SOURCE_SYSTEM
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: MDB
+                            sourceDateTime:
+                              source: SOURCE_DATETIME
+                              required: true
+                              transforms:
+                              - trim
+                            sourceTransactionIdentifier:
+                              source: SOURCE_USER
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: fileadapter
+                        consentManager:
+                          source: resolved.manager
+                          required: true
+                  - where:
+                      source: PAYER_CONSENT_PREFERENCE
+                      present: true
+                    group-by:
+                    - resolved.owner.contractMemberGuid
+                    - PAYER_CONSENT_KEY
+                    item:
+                      object:
+                        consentGuid:
+                          source: resolved.payerConsentGuid
+                          default-json: 'null'
+                        consentTarget:
+                          literal-json: '"P2PDS"'
+                        consentStatus:
+                          source: PAYER_CONSENT_PREFERENCE
+                          required: true
+                          transforms:
+                          - trim
+                          - uppercase
+                          values:
+                            GRANT: GRANT
+                            RVOKE: RVOKE
+                        consentOwner:
+                          source: resolved.owner
+                          required: true
+                        effectiveDate:
+                          source: PAYER_CONSENT_PREFERENCE_EFFECTIVE_DATE
+                          required: true
+                          transforms:
+                          - trim
+                          - iso-date
+                        effectiveEndDate:
+                          literal-json: 'null'
+                        coverage:
+                          array:
+                          - where:
+                              any-present:
+                              - PAYER_ID
+                              - PAYER_POLICY_ID
+                              - PAYER_GROUP_NUMBER
+                              - PAYER_SUBSCRIBER_FIRST_NAME
+                              - PAYER_SUBSCRIBER_LAST_NAME
+                              - PAYER_SUBSCRIBER_MIDDLE_NAME
+                              - PAYER_GENDER_CODE
+                              - PAYER_DATE_OF_BIRTH
+                            group-by:
+                            - PAYER_ID
+                            - PAYER_POLICY_ID
+                            item:
+                              object:
+                                payerId:
+                                  source: PAYER_ID
+                                  required: true
+                                  transforms:
+                                  - trim
+                                otherPayerMemberId:
+                                  source: PAYER_POLICY_ID
+                                  required: true
+                                  transforms:
+                                  - trim
+                                groupNumber:
+                                  source: PAYER_GROUP_NUMBER
+                                  transforms:
+                                  - trim
+                                  blank-policy: 'NULL'
+                                policyHolderFirstName:
+                                  source: PAYER_SUBSCRIBER_FIRST_NAME
+                                  transforms:
+                                  - trim
+                                  blank-policy: 'NULL'
+                                policyHolderMiddleName:
+                                  source: PAYER_SUBSCRIBER_MIDDLE_NAME
+                                  transforms:
+                                  - trim
+                                  blank-policy: 'NULL'
+                                policyHolderLastName:
+                                  source: PAYER_SUBSCRIBER_LAST_NAME
+                                  transforms:
+                                  - trim
+                                  blank-policy: 'NULL'
+                                policyHolderGender:
+                                  source: PAYER_GENDER_CODE
+                                  transforms:
+                                  - trim
+                                  - uppercase
+                                  blank-policy: 'NULL'
+                                policyHolderDateOfBirth:
+                                  source: PAYER_DATE_OF_BIRTH
+                                  required: true
+                                  transforms:
+                                  - trim
+                                  - iso-date
+                                relationshipToPolicyHolder:
+                                  source: RELATIONSHIP_CODE
+                                  required: true
+                                  transforms:
+                                  - trim
+                                  - uppercase
+                                  values:
+                                    SELF: SELF
+                                    SPOUSE: SPOUSE
+                                    DEPENDENT: DEPENDENT
+                                    OTHER: OTHER
+                        transactionDetails:
+                          object:
+                            sourceSystem:
+                              source: PAYER_SOURCE_SYSTEM
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: MDB
+                            sourceDateTime:
+                              source: SOURCE_DATETIME
+                              required: true
+                              transforms:
+                              - trim
+                            sourceTransactionIdentifier:
+                              source: SOURCE_USER
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: fileadapter
+                        consentManager:
+                          source: resolved.manager
+                          required: true
+        batching:
+          group-by:
+          - resolved.owner.contract
+          max-groups-per-request: ${CONTRACTS_PER_REQUEST:2}
+          max-records-per-group: ${CONTRACT_MAX_ROWS:100}
+          member-key: resolved.owner.contractMemberGuid
+          max-members-per-group: ${CONTRACT_MAX_MEMBERS:25}
+          where:
+            any-present:
+            - PROVIDER_CLINICAL_CONSENT_PREFERENCE
+            - PAYER_CONSENT_PREFERENCE
+      errors:
+        contract-key: EXTERNAL_CONTRACT_ID
+        enrichment-severity: MEDIUM
+        projection-severity: MEDIUM
+        include-warnings: false
+        rules:
+        - source: FIRST_NAME
+          condition: EQUALS
+          equals-value: John
+          severity: MEDIUM
+          code: BAD_MEMBER
+          customer-remarks: Member details require correction.
+          internal-remarks: Demo validation rejects the whole external contract before delivery.
+        - &id002
+          source: FIRST_NAME
+          condition: EQUALS
+          equals-value: Morgan
+          severity: SOFT
+          code: REVIEW
+          customer-remarks: Please review member details.
+          internal-remarks: 'Demo warning: review requested; processing continues.'
+        service-codes: &id001
+          MEMBER_INVALID:
+            customer-code: MEMBER_REJECTED
+            customer-remarks: Member details require correction.
+            internal-remarks: Service rejected this member; correlated to original source rows.
+          CONTRACT_INVALID:
+            customer-code: CONTRACT_FAILED
+            customer-remarks: Contract details require correction.
+            internal-remarks: Service rejected this complete contract.
+          REVIEW:
+            customer-code: REVIEW
+            customer-remarks: Please review member details.
+            internal-remarks: Service warning; delivery continues.
+          FILE_INVALID:
+            customer-code: FILE_REJECTED
+            customer-remarks: The file requires correction.
+            internal-remarks: Service reported a file-level stop; already acknowledged requests cannot be rolled back.
+    - id: error-demo-hard-v1
+      filename-pattern: '*.error-hard'
+      layout:
+        charset: UTF-8
+        format: DELIMITED
+        delimiter: ','
+        header-mode: FIRST_RECORD
+      consent:
+        version: flexible-lookup-v1
+        provider-target: PCDS
+        payer-target: P2PDS
+        date-pattern: uuuu-MM-dd
+        lookup:
+          mode: ${FLEXIBLE_LOOKUP_MODE:FIXTURE}
+          endpoint: ${CONSENT_LOOKUP_URL:http://127.0.0.1:8082/members/resolve}
+          connect-timeout: 5s
+          read-timeout: 10s
+          fixtures:
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
+              FIRST_NAME: Alex
+              LAST_NAME: Example
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '123456789'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-001
+              manager:
+                contract: '123456789'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-001
+              providerConsentGuid: null
+              payerConsentGuid: null
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
+              FIRST_NAME: John
+              LAST_NAME: Smith
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '123456789'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-002
+              manager:
+                contract: '123456789'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-002
+              providerConsentGuid: null
+              payerConsentGuid: null
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
+              FIRST_NAME: Morgan
+              LAST_NAME: Chen
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '222222222'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-003
+              manager:
+                contract: '222222222'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-003
+              providerConsentGuid: null
+              payerConsentGuid: null
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
+              FIRST_NAME: Taylor
+              LAST_NAME: Reed
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '222222222'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-004
+              manager:
+                contract: '222222222'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-004
+              providerConsentGuid: null
+              payerConsentGuid: null
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-C
+              FIRST_NAME: Jamie
+              LAST_NAME: Lee
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '333333333'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-005
+              manager:
+                contract: '333333333'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-005
+              providerConsentGuid: null
+              payerConsentGuid: null
+      projection:
+        version: contract-array-v1
+        scope: GROUPED
+        max-records: 1000
+        enrichers:
+        - consent-member
+        input-contract:
+        - path: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+          type: STRING
+          required: true
+          nullable: true
+        - path: PAYER_CONSENT_PREFERENCE
+          type: STRING
+          required: true
+          nullable: true
+        skip-when-empty: $
+        root:
+          array:
+          - group-by:
+            - resolved.owner.contract
+            item:
+              object:
+                contractId:
+                  source: resolved.owner.contract
+                  required: true
+                consents:
+                  array:
+                  - where:
+                      source: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+                      present: true
+                    group-by:
+                    - resolved.owner.contractMemberGuid
+                    item:
+                      object:
+                        consentGuid:
+                          source: resolved.providerConsentGuid
+                          default-json: 'null'
+                        consentTarget:
+                          literal-json: '"PCDS"'
+                        consentStatus:
+                          source: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+                          required: true
+                          transforms:
+                          - trim
+                          - uppercase
+                          values:
+                            GRANT: GRANT
+                            RVOKE: RVOKE
+                        consentOwner:
+                          source: resolved.owner
+                          required: true
+                        effectiveDate:
+                          source: PROVIDER_CLINICAL_CONSENT_EFFECTIVE_DATE
+                          required: true
+                          transforms:
+                          - trim
+                          - iso-date
+                        effectiveEndDate:
+                          literal-json: 'null'
+                        coverage:
+                          literal-json: '[]'
+                        transactionDetails:
+                          object:
+                            sourceSystem:
+                              source: PROVIDER_SOURCE_SYSTEM
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: MDB
+                            sourceDateTime:
+                              source: SOURCE_DATETIME
+                              required: true
+                              transforms:
+                              - trim
+                            sourceTransactionIdentifier:
+                              source: SOURCE_USER
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: fileadapter
+                        consentManager:
+                          source: resolved.manager
+                          required: true
+                  - where:
+                      source: PAYER_CONSENT_PREFERENCE
+                      present: true
+                    group-by:
+                    - resolved.owner.contractMemberGuid
+                    - PAYER_CONSENT_KEY
+                    item:
+                      object:
+                        consentGuid:
+                          source: resolved.payerConsentGuid
+                          default-json: 'null'
+                        consentTarget:
+                          literal-json: '"P2PDS"'
+                        consentStatus:
+                          source: PAYER_CONSENT_PREFERENCE
+                          required: true
+                          transforms:
+                          - trim
+                          - uppercase
+                          values:
+                            GRANT: GRANT
+                            RVOKE: RVOKE
+                        consentOwner:
+                          source: resolved.owner
+                          required: true
+                        effectiveDate:
+                          source: PAYER_CONSENT_PREFERENCE_EFFECTIVE_DATE
+                          required: true
+                          transforms:
+                          - trim
+                          - iso-date
+                        effectiveEndDate:
+                          literal-json: 'null'
+                        coverage:
+                          array:
+                          - where:
+                              any-present:
+                              - PAYER_ID
+                              - PAYER_POLICY_ID
+                              - PAYER_GROUP_NUMBER
+                              - PAYER_SUBSCRIBER_FIRST_NAME
+                              - PAYER_SUBSCRIBER_LAST_NAME
+                              - PAYER_SUBSCRIBER_MIDDLE_NAME
+                              - PAYER_GENDER_CODE
+                              - PAYER_DATE_OF_BIRTH
+                            group-by:
+                            - PAYER_ID
+                            - PAYER_POLICY_ID
+                            item:
+                              object:
+                                payerId:
+                                  source: PAYER_ID
+                                  required: true
+                                  transforms:
+                                  - trim
+                                otherPayerMemberId:
+                                  source: PAYER_POLICY_ID
+                                  required: true
+                                  transforms:
+                                  - trim
+                                groupNumber:
+                                  source: PAYER_GROUP_NUMBER
+                                  transforms:
+                                  - trim
+                                  blank-policy: 'NULL'
+                                policyHolderFirstName:
+                                  source: PAYER_SUBSCRIBER_FIRST_NAME
+                                  transforms:
+                                  - trim
+                                  blank-policy: 'NULL'
+                                policyHolderMiddleName:
+                                  source: PAYER_SUBSCRIBER_MIDDLE_NAME
+                                  transforms:
+                                  - trim
+                                  blank-policy: 'NULL'
+                                policyHolderLastName:
+                                  source: PAYER_SUBSCRIBER_LAST_NAME
+                                  transforms:
+                                  - trim
+                                  blank-policy: 'NULL'
+                                policyHolderGender:
+                                  source: PAYER_GENDER_CODE
+                                  transforms:
+                                  - trim
+                                  - uppercase
+                                  blank-policy: 'NULL'
+                                policyHolderDateOfBirth:
+                                  source: PAYER_DATE_OF_BIRTH
+                                  required: true
+                                  transforms:
+                                  - trim
+                                  - iso-date
+                                relationshipToPolicyHolder:
+                                  source: RELATIONSHIP_CODE
+                                  required: true
+                                  transforms:
+                                  - trim
+                                  - uppercase
+                                  values:
+                                    SELF: SELF
+                                    SPOUSE: SPOUSE
+                                    DEPENDENT: DEPENDENT
+                                    OTHER: OTHER
+                        transactionDetails:
+                          object:
+                            sourceSystem:
+                              source: PAYER_SOURCE_SYSTEM
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: MDB
+                            sourceDateTime:
+                              source: SOURCE_DATETIME
+                              required: true
+                              transforms:
+                              - trim
+                            sourceTransactionIdentifier:
+                              source: SOURCE_USER
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: fileadapter
+                        consentManager:
+                          source: resolved.manager
+                          required: true
+        batching:
+          group-by:
+          - resolved.owner.contract
+          max-groups-per-request: ${CONTRACTS_PER_REQUEST:2}
+          max-records-per-group: ${CONTRACT_MAX_ROWS:100}
+          member-key: resolved.owner.contractMemberGuid
+          max-members-per-group: ${CONTRACT_MAX_MEMBERS:25}
+          where:
+            any-present:
+            - PROVIDER_CLINICAL_CONSENT_PREFERENCE
+            - PAYER_CONSENT_PREFERENCE
+      errors:
+        contract-key: EXTERNAL_CONTRACT_ID
+        enrichment-severity: MEDIUM
+        projection-severity: MEDIUM
+        include-warnings: false
+        rules:
+        - source: FIRST_NAME
+          condition: EQUALS
+          equals-value: Taylor
+          severity: HARD
+          code: BAD_FILE
+          customer-remarks: The file requires correction.
+          internal-remarks: Demo file-level validation blocks every request.
+        service-codes: *id001
+    - id: error-demo-soft-v1
+      filename-pattern: '*.error-soft'
+      layout:
+        charset: UTF-8
+        format: DELIMITED
+        delimiter: ','
+        header-mode: FIRST_RECORD
+      consent:
+        version: flexible-lookup-v1
+        provider-target: PCDS
+        payer-target: P2PDS
+        date-pattern: uuuu-MM-dd
+        lookup:
+          mode: ${FLEXIBLE_LOOKUP_MODE:FIXTURE}
+          endpoint: ${CONSENT_LOOKUP_URL:http://127.0.0.1:8082/members/resolve}
+          connect-timeout: 5s
+          read-timeout: 10s
+          fixtures:
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
+              FIRST_NAME: Alex
+              LAST_NAME: Example
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '123456789'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-001
+              manager:
+                contract: '123456789'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-001
+              providerConsentGuid: null
+              payerConsentGuid: null
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
+              FIRST_NAME: John
+              LAST_NAME: Smith
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '123456789'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-002
+              manager:
+                contract: '123456789'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-002
+              providerConsentGuid: null
+              payerConsentGuid: null
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
+              FIRST_NAME: Morgan
+              LAST_NAME: Chen
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '222222222'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-003
+              manager:
+                contract: '222222222'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-003
+              providerConsentGuid: null
+              payerConsentGuid: null
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
+              FIRST_NAME: Taylor
+              LAST_NAME: Reed
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '222222222'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-004
+              manager:
+                contract: '222222222'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-004
+              providerConsentGuid: null
+              payerConsentGuid: null
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-C
+              FIRST_NAME: Jamie
+              LAST_NAME: Lee
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '333333333'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-005
+              manager:
+                contract: '333333333'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-005
+              providerConsentGuid: null
+              payerConsentGuid: null
+      projection:
+        version: contract-array-v1
+        scope: GROUPED
+        max-records: 1000
+        enrichers:
+        - consent-member
+        input-contract:
+        - path: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+          type: STRING
+          required: true
+          nullable: true
+        - path: PAYER_CONSENT_PREFERENCE
+          type: STRING
+          required: true
+          nullable: true
+        skip-when-empty: $
+        root:
+          array:
+          - group-by:
+            - resolved.owner.contract
+            item:
+              object:
+                contractId:
+                  source: resolved.owner.contract
+                  required: true
+                consents:
+                  array:
+                  - where:
+                      source: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+                      present: true
+                    group-by:
+                    - resolved.owner.contractMemberGuid
+                    item:
+                      object:
+                        consentGuid:
+                          source: resolved.providerConsentGuid
+                          default-json: 'null'
+                        consentTarget:
+                          literal-json: '"PCDS"'
+                        consentStatus:
+                          source: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+                          required: true
+                          transforms:
+                          - trim
+                          - uppercase
+                          values:
+                            GRANT: GRANT
+                            RVOKE: RVOKE
+                        consentOwner:
+                          source: resolved.owner
+                          required: true
+                        effectiveDate:
+                          source: PROVIDER_CLINICAL_CONSENT_EFFECTIVE_DATE
+                          required: true
+                          transforms:
+                          - trim
+                          - iso-date
+                        effectiveEndDate:
+                          literal-json: 'null'
+                        coverage:
+                          literal-json: '[]'
+                        transactionDetails:
+                          object:
+                            sourceSystem:
+                              source: PROVIDER_SOURCE_SYSTEM
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: MDB
+                            sourceDateTime:
+                              source: SOURCE_DATETIME
+                              required: true
+                              transforms:
+                              - trim
+                            sourceTransactionIdentifier:
+                              source: SOURCE_USER
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: fileadapter
+                        consentManager:
+                          source: resolved.manager
+                          required: true
+                  - where:
+                      source: PAYER_CONSENT_PREFERENCE
+                      present: true
+                    group-by:
+                    - resolved.owner.contractMemberGuid
+                    - PAYER_CONSENT_KEY
+                    item:
+                      object:
+                        consentGuid:
+                          source: resolved.payerConsentGuid
+                          default-json: 'null'
+                        consentTarget:
+                          literal-json: '"P2PDS"'
+                        consentStatus:
+                          source: PAYER_CONSENT_PREFERENCE
+                          required: true
+                          transforms:
+                          - trim
+                          - uppercase
+                          values:
+                            GRANT: GRANT
+                            RVOKE: RVOKE
+                        consentOwner:
+                          source: resolved.owner
+                          required: true
+                        effectiveDate:
+                          source: PAYER_CONSENT_PREFERENCE_EFFECTIVE_DATE
+                          required: true
+                          transforms:
+                          - trim
+                          - iso-date
+                        effectiveEndDate:
+                          literal-json: 'null'
+                        coverage:
+                          array:
+                          - where:
+                              any-present:
+                              - PAYER_ID
+                              - PAYER_POLICY_ID
+                              - PAYER_GROUP_NUMBER
+                              - PAYER_SUBSCRIBER_FIRST_NAME
+                              - PAYER_SUBSCRIBER_LAST_NAME
+                              - PAYER_SUBSCRIBER_MIDDLE_NAME
+                              - PAYER_GENDER_CODE
+                              - PAYER_DATE_OF_BIRTH
+                            group-by:
+                            - PAYER_ID
+                            - PAYER_POLICY_ID
+                            item:
+                              object:
+                                payerId:
+                                  source: PAYER_ID
+                                  required: true
+                                  transforms:
+                                  - trim
+                                otherPayerMemberId:
+                                  source: PAYER_POLICY_ID
+                                  required: true
+                                  transforms:
+                                  - trim
+                                groupNumber:
+                                  source: PAYER_GROUP_NUMBER
+                                  transforms:
+                                  - trim
+                                  blank-policy: 'NULL'
+                                policyHolderFirstName:
+                                  source: PAYER_SUBSCRIBER_FIRST_NAME
+                                  transforms:
+                                  - trim
+                                  blank-policy: 'NULL'
+                                policyHolderMiddleName:
+                                  source: PAYER_SUBSCRIBER_MIDDLE_NAME
+                                  transforms:
+                                  - trim
+                                  blank-policy: 'NULL'
+                                policyHolderLastName:
+                                  source: PAYER_SUBSCRIBER_LAST_NAME
+                                  transforms:
+                                  - trim
+                                  blank-policy: 'NULL'
+                                policyHolderGender:
+                                  source: PAYER_GENDER_CODE
+                                  transforms:
+                                  - trim
+                                  - uppercase
+                                  blank-policy: 'NULL'
+                                policyHolderDateOfBirth:
+                                  source: PAYER_DATE_OF_BIRTH
+                                  required: true
+                                  transforms:
+                                  - trim
+                                  - iso-date
+                                relationshipToPolicyHolder:
+                                  source: RELATIONSHIP_CODE
+                                  required: true
+                                  transforms:
+                                  - trim
+                                  - uppercase
+                                  values:
+                                    SELF: SELF
+                                    SPOUSE: SPOUSE
+                                    DEPENDENT: DEPENDENT
+                                    OTHER: OTHER
+                        transactionDetails:
+                          object:
+                            sourceSystem:
+                              source: PAYER_SOURCE_SYSTEM
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: MDB
+                            sourceDateTime:
+                              source: SOURCE_DATETIME
+                              required: true
+                              transforms:
+                              - trim
+                            sourceTransactionIdentifier:
+                              source: SOURCE_USER
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: fileadapter
+                        consentManager:
+                          source: resolved.manager
+                          required: true
+        batching:
+          group-by:
+          - resolved.owner.contract
+          max-groups-per-request: ${CONTRACTS_PER_REQUEST:2}
+          max-records-per-group: ${CONTRACT_MAX_ROWS:100}
+          member-key: resolved.owner.contractMemberGuid
+          max-members-per-group: ${CONTRACT_MAX_MEMBERS:25}
+          where:
+            any-present:
+            - PROVIDER_CLINICAL_CONSENT_PREFERENCE
+            - PAYER_CONSENT_PREFERENCE
+      errors:
+        contract-key: EXTERNAL_CONTRACT_ID
+        enrichment-severity: MEDIUM
+        projection-severity: MEDIUM
+        include-warnings: true
+        rules:
+        - *id002
+        service-codes: *id001
+    - id: error-demo-service-v1
+      filename-pattern: '*.error-service'
+      layout:
+        charset: UTF-8
+        format: DELIMITED
+        delimiter: ','
+        header-mode: FIRST_RECORD
+      consent:
+        version: flexible-lookup-v1
+        provider-target: PCDS
+        payer-target: P2PDS
+        date-pattern: uuuu-MM-dd
+        lookup:
+          mode: ${FLEXIBLE_LOOKUP_MODE:FIXTURE}
+          endpoint: ${CONSENT_LOOKUP_URL:http://127.0.0.1:8082/members/resolve}
+          connect-timeout: 5s
+          read-timeout: 10s
+          fixtures:
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
+              FIRST_NAME: Alex
+              LAST_NAME: Example
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '123456789'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-001
+              manager:
+                contract: '123456789'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-001
+              providerConsentGuid: null
+              payerConsentGuid: null
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
+              FIRST_NAME: John
+              LAST_NAME: Smith
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '123456789'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-002
+              manager:
+                contract: '123456789'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-002
+              providerConsentGuid: null
+              payerConsentGuid: null
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
+              FIRST_NAME: Morgan
+              LAST_NAME: Chen
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '222222222'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-003
+              manager:
+                contract: '222222222'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-003
+              providerConsentGuid: null
+              payerConsentGuid: null
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
+              FIRST_NAME: Taylor
+              LAST_NAME: Reed
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '222222222'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-004
+              manager:
+                contract: '222222222'
+                pin: '002'
+                contractMemberGuid: MEMBER-GUID-004
+              providerConsentGuid: null
+              payerConsentGuid: null
+          - match:
+              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-C
+              FIRST_NAME: Jamie
+              LAST_NAME: Lee
+              DATE_OF_BIRTH: '1980-01-01'
+            result:
+              owner:
+                contract: '333333333'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-005
+              manager:
+                contract: '333333333'
+                pin: '001'
+                contractMemberGuid: MEMBER-GUID-005
+              providerConsentGuid: null
+              payerConsentGuid: null
+      projection:
+        version: contract-array-v1
+        scope: GROUPED
+        max-records: 1000
+        enrichers:
+        - consent-member
+        input-contract:
+        - path: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+          type: STRING
+          required: true
+          nullable: true
+        - path: PAYER_CONSENT_PREFERENCE
+          type: STRING
+          required: true
+          nullable: true
+        skip-when-empty: $
+        root:
+          array:
+          - group-by:
+            - resolved.owner.contract
+            item:
+              object:
+                contractId:
+                  source: resolved.owner.contract
+                  required: true
+                consents:
+                  array:
+                  - where:
+                      source: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+                      present: true
+                    group-by:
+                    - resolved.owner.contractMemberGuid
+                    item:
+                      object:
+                        consentGuid:
+                          source: resolved.providerConsentGuid
+                          default-json: 'null'
+                        consentTarget:
+                          literal-json: '"PCDS"'
+                        consentStatus:
+                          source: PROVIDER_CLINICAL_CONSENT_PREFERENCE
+                          required: true
+                          transforms:
+                          - trim
+                          - uppercase
+                          values:
+                            GRANT: GRANT
+                            RVOKE: RVOKE
+                        consentOwner:
+                          source: resolved.owner
+                          required: true
+                        effectiveDate:
+                          source: PROVIDER_CLINICAL_CONSENT_EFFECTIVE_DATE
+                          required: true
+                          transforms:
+                          - trim
+                          - iso-date
+                        effectiveEndDate:
+                          literal-json: 'null'
+                        coverage:
+                          literal-json: '[]'
+                        transactionDetails:
+                          object:
+                            sourceSystem:
+                              source: PROVIDER_SOURCE_SYSTEM
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: MDB
+                            sourceDateTime:
+                              source: SOURCE_DATETIME
+                              required: true
+                              transforms:
+                              - trim
+                            sourceTransactionIdentifier:
+                              source: SOURCE_USER
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: fileadapter
+                        consentManager:
+                          source: resolved.manager
+                          required: true
+                  - where:
+                      source: PAYER_CONSENT_PREFERENCE
+                      present: true
+                    group-by:
+                    - resolved.owner.contractMemberGuid
+                    - PAYER_CONSENT_KEY
+                    item:
+                      object:
+                        consentGuid:
+                          source: resolved.payerConsentGuid
+                          default-json: 'null'
+                        consentTarget:
+                          literal-json: '"P2PDS"'
+                        consentStatus:
+                          source: PAYER_CONSENT_PREFERENCE
+                          required: true
+                          transforms:
+                          - trim
+                          - uppercase
+                          values:
+                            GRANT: GRANT
+                            RVOKE: RVOKE
+                        consentOwner:
+                          source: resolved.owner
+                          required: true
+                        effectiveDate:
+                          source: PAYER_CONSENT_PREFERENCE_EFFECTIVE_DATE
+                          required: true
+                          transforms:
+                          - trim
+                          - iso-date
+                        effectiveEndDate:
+                          literal-json: 'null'
+                        coverage:
+                          array:
+                          - where:
+                              any-present:
+                              - PAYER_ID
+                              - PAYER_POLICY_ID
+                              - PAYER_GROUP_NUMBER
+                              - PAYER_SUBSCRIBER_FIRST_NAME
+                              - PAYER_SUBSCRIBER_LAST_NAME
+                              - PAYER_SUBSCRIBER_MIDDLE_NAME
+                              - PAYER_GENDER_CODE
+                              - PAYER_DATE_OF_BIRTH
+                            group-by:
+                            - PAYER_ID
+                            - PAYER_POLICY_ID
+                            item:
+                              object:
+                                payerId:
+                                  source: PAYER_ID
+                                  required: true
+                                  transforms:
+                                  - trim
+                                otherPayerMemberId:
+                                  source: PAYER_POLICY_ID
+                                  required: true
+                                  transforms:
+                                  - trim
+                                groupNumber:
+                                  source: PAYER_GROUP_NUMBER
+                                  transforms:
+                                  - trim
+                                  blank-policy: 'NULL'
+                                policyHolderFirstName:
+                                  source: PAYER_SUBSCRIBER_FIRST_NAME
+                                  transforms:
+                                  - trim
+                                  blank-policy: 'NULL'
+                                policyHolderMiddleName:
+                                  source: PAYER_SUBSCRIBER_MIDDLE_NAME
+                                  transforms:
+                                  - trim
+                                  blank-policy: 'NULL'
+                                policyHolderLastName:
+                                  source: PAYER_SUBSCRIBER_LAST_NAME
+                                  transforms:
+                                  - trim
+                                  blank-policy: 'NULL'
+                                policyHolderGender:
+                                  source: PAYER_GENDER_CODE
+                                  transforms:
+                                  - trim
+                                  - uppercase
+                                  blank-policy: 'NULL'
+                                policyHolderDateOfBirth:
+                                  source: PAYER_DATE_OF_BIRTH
+                                  required: true
+                                  transforms:
+                                  - trim
+                                  - iso-date
+                                relationshipToPolicyHolder:
+                                  source: RELATIONSHIP_CODE
+                                  required: true
+                                  transforms:
+                                  - trim
+                                  - uppercase
+                                  values:
+                                    SELF: SELF
+                                    SPOUSE: SPOUSE
+                                    DEPENDENT: DEPENDENT
+                                    OTHER: OTHER
+                        transactionDetails:
+                          object:
+                            sourceSystem:
+                              source: PAYER_SOURCE_SYSTEM
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: MDB
+                            sourceDateTime:
+                              source: SOURCE_DATETIME
+                              required: true
+                              transforms:
+                              - trim
+                            sourceTransactionIdentifier:
+                              source: SOURCE_USER
+                              required: true
+                              transforms:
+                              - trim
+                              default-value: fileadapter
+                        consentManager:
+                          source: resolved.manager
+                          required: true
+        batching:
+          group-by:
+          - resolved.owner.contract
+          max-groups-per-request: ${CONTRACTS_PER_REQUEST:2}
+          max-records-per-group: ${CONTRACT_MAX_ROWS:100}
+          member-key: resolved.owner.contractMemberGuid
+          max-members-per-group: ${CONTRACT_MAX_MEMBERS:25}
+          where:
+            any-present:
+            - PROVIDER_CLINICAL_CONSENT_PREFERENCE
+            - PAYER_CONSENT_PREFERENCE
+      errors:
+        contract-key: EXTERNAL_CONTRACT_ID
+        enrichment-severity: MEDIUM
+        projection-severity: MEDIUM
+        service-codes: *id001

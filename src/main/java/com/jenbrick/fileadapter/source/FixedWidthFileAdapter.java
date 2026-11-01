@@ -31,7 +31,7 @@ public class FixedWidthFileAdapter implements FileFormatAdapter {
                     int end = line.offsetByCodePoints(start, field.length());
                     data.put(field.name(), line.substring(start, end));
                 }
-                consumer.accept(new SourceRecord(number, data));
+                consumer.accept(new SourceRecord(number, data, line));
             }
         }
     }

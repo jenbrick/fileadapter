@@ -63,7 +63,45 @@ def main():
             if lines != wanted or preview["source"]["fileName"] != filename:
                 raise AssertionError(f"JSONL or source metadata mismatch: {filename}/{profile}")
             print("PASS", filename, profile or "automatic routing", flush=True)
-    print(f"Verified {len(CASES)} packaged example runs.")
+    verify_errors(jar)
+    print(f"Verified {len(CASES) + 3} packaged example runs.")
+
+
+def verify_errors(jar):
+    import csv
+    for flavor in ("hard", "medium", "soft"):
+        with tempfile.TemporaryDirectory(prefix="fileadapter-errors-") as directory:
+            work = Path(directory)
+            command = [os.environ.get("JAVA", "java"), "-jar", str(jar),
+                       "--spring.profiles.active=flexible-demo", "--ingestion.mode=PREVIEW",
+                       "--ingestion.work-directory=" + str(work),
+                       "--ingestion.profile-id=error-demo-" + flavor + "-v1",
+                       "--ingestion.file=" + str(EXAMPLES / "contract-batches.csv")]
+            result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=90)
+            expected_exit = 1 if flavor == "hard" else 0
+            if result.returncode != expected_exit:
+                raise AssertionError(f"Unexpected exit for {flavor}: {result.stdout} {result.stderr}")
+            ready = list((work / "results/customer").glob("*/ready.json"))
+            if len(ready) != 1:
+                raise AssertionError(f"Missing customer-ready result for {flavor}")
+            manifest = json.loads(ready[0].read_text())
+            with (ready[0].parent / manifest["customerFile"]).open(newline="") as actual_file:
+                actual = list(csv.DictReader(actual_file))
+            with (EXAMPLES / f"expected-customer-{flavor}.csv").open(newline="") as expected_file:
+                expected = list(csv.DictReader(expected_file))
+            if actual != expected:
+                raise AssertionError(f"Customer original-record return mismatch: {flavor}")
+            internal = list((work / "results/internal").glob("*/ready.json"))
+            if len(internal) != 1:
+                raise AssertionError("Missing internal result manifest")
+            internal_manifest = json.loads(internal[0].read_text())
+            report = json.loads((internal[0].parent / internal_manifest["internalFile"]).read_text())
+            if not report["completeSource"] or not report["findings"]:
+                raise AssertionError("Missing complete diagnostic findings")
+            expected_status = {"hard": "FAILED", "medium": "PREVIEWED_WITH_ERRORS", "soft": "PREVIEWED"}[flavor]
+            if report["status"] != expected_status:
+                raise AssertionError("Wrong severity behavior")
+            print("PASS", "customer/internal results", flavor, flush=True)
 
 
 if __name__ == "__main__":

@@ -19,5 +19,11 @@ public record IngestionProperties(
     public record Delivery(URI endpoint, Duration connectTimeout,
                            Duration readTimeout, int maxAttempts,
                            Duration retryDelay, boolean replaySafe,
-                           String idempotencyHeader, List<Integer> successStatuses) {}
+                           String idempotencyHeader, List<Integer> successStatuses, String responseContract) {
+        @org.springframework.boot.context.properties.bind.ConstructorBinding public Delivery {}
+        public Delivery(URI endpoint,Duration connectTimeout,Duration readTimeout,int maxAttempts,
+                        Duration retryDelay,boolean replaySafe,String idempotencyHeader,List<Integer> successStatuses) {
+            this(endpoint,connectTimeout,readTimeout,maxAttempts,retryDelay,replaySafe,idempotencyHeader,successStatuses,null);
+        }
+    }
 }

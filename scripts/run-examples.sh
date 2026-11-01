@@ -29,3 +29,5 @@ for profile in flexible-contract-single-v1 flexible-contract-array-v1; do
     --ingestion.file=examples/flexible/contract-batches.csv
 done
 echo "Open var-flexible-demo/preview/<run-id>/<input-file>.preview.json"
+
+bash scripts/run-error-examples.sh

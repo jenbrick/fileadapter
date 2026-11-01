@@ -33,3 +33,8 @@ upsert:
 
 consent:
   lookup-bearer-token: ${CONSENT_LOOKUP_BEARER_TOKEN:}
+
+# Mounted LAN/outbox paths. Another process sends customer files and emails IT reports.
+results:
+  customer-directory: ${CUSTOMER_RESULTS_DIR:}
+  internal-directory: ${INTERNAL_RESULTS_DIR:}
