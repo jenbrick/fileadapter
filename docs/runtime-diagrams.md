@@ -249,6 +249,7 @@ classDiagram
     class SourceRecord {
         +number() long
         +payload() JsonNode
+        +rawText() String
     }
     class SourceNormalizer {
         +normalize(source, layout) SourceRecord
