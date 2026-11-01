@@ -6,7 +6,7 @@ Java 17 · Spring Boot 3.5.16 · Gradle Wrapper 8.14.3 · Jackson · Apache Comm
 
 ## Planning the first production release
 
-Start with the [simple month-one overview](docs/month-one-overview.md) for the team discussion, then use the [detailed delivery plan](docs/month-one-delivery-plan.md) for scope, API decisions, acceptance and the four-week sequence. Both include Mermaid diagrams and distinguish the proposed initial release from the current POC.
+Start with the [January Delivery Plan Overview](docs/january-delivery-plan-overview.md) for the team discussion, then use the [January Delivery Plan Detailed](docs/january-delivery-plan-detailed.md) for scope, API decisions, acceptance and the four-week sequence. Both include Mermaid diagrams and distinguish the proposed initial release from the current POC.
 
 ## Group lookup before member lookup
 

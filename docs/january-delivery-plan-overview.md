@@ -1,4 +1,4 @@
-# Month-one build: simple overview
+# January Delivery Plan Overview
 
 **Goal:** deliver a small, complete file-to-consent flow that the team can operate and support.
 
@@ -32,7 +32,7 @@ flowchart TD
     Results --> IT["IT: detailed findings"]
 ```
 
-The result folders are outboxes. Another process sends customer files and emails IT. The [detailed plan](month-one-delivery-plan.md) expands validation, error isolation and recovery.
+The result folders are outboxes. Another process sends customer files and emails IT. The [January Delivery Plan Detailed](january-delivery-plan-detailed.md) expands validation, error isolation and recovery.
 
 ## Error rules
 

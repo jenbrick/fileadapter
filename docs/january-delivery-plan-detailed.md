@@ -1,6 +1,6 @@
-# Month-one delivery plan: implementation detail
+# January Delivery Plan Detailed
 
-**Build one complete, supportable flow first.** Use the [simple overview](month-one-overview.md) to present the scope, then use this document to divide the work and agree on acceptance criteria.
+**Build one complete, supportable flow first.** Use the [January Delivery Plan Overview](january-delivery-plan-overview.md) to present the scope, then use this document to divide the work and agree on acceptance criteria.
 
 This is a proposed first-release plan, not a claim that the POC is production-ready or that the company service contracts are already implemented. Four weeks assumes the team has access to those services, representative files, a test environment and prompt decisions on unresolved behavior. Confirm capacity and required launch feeds before committing to the schedule.
 
