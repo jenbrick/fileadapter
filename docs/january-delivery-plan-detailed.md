@@ -77,63 +77,71 @@ The diagram focuses on boundaries rather than every exception. Group/member look
 
 Persistence happens throughout intake and lookup as well as before POST. Save successful group context for the run and completed member resolutions where practical, then save the exact outgoing body before the network side effect. The POC shows these as separate checkpoints.
 
-## 4. Resolve the receiving-service contract early
+## 4. Discussion - need to agree on how the receiving service works
 
-| Decision | What must be agreed |
+Before we finish building the adapter, agree with the receiving-service on these details:
+
+| Topic | What we need to know |
 | --- | --- |
-| Consent identity | What distinguishes provider and payer consents, including multiple payer consents for one member? How are existing consent GUIDs obtained? |
-| Coverage updates | Does the request merge coverage, replace the collection, or use explicit add/remove operations? What does an empty collection mean? |
-| Partial success | Is processing atomic by request, contract, member or consent? Can accepted work coexist with failed members? |
-| Failure correlation | Which stable contract/member identifiers are returned? A member GUID cannot identify one particular coverage row without another key. |
-| Acknowledgement | Which HTTP statuses and response fields mean processing has completed? |
-| Replay | Does the service honor an idempotency key, and how does it handle the same key/body on retry? How is an uncertain result reconciled? |
-| Limits | What are the contract, member, coverage and serialized-byte limits? |
-| Representation | Which wrapper is accepted initially, what are the date/timestamp rules, and how are no-change and revocation represented? |
-| Consent manager | How is the manager identified when it differs from the member? |
+| Identifying consents | How do we tell one consent from another, especially when a member has several payer consents? How do we find an existing consent’s GUID? |
+| Updating coverage | Does the service add to existing coverage, replace it all, or require specific add/remove instructions? Does an empty list mean “remove everything” or “no changes”? |
+| Partial success | If one item fails, does the service reject the whole request, the contract, the member or just that consent? |
+| Identifying failures | What identifiers will the response include so we can find the original failed records? A member GUID alone cannot tell us which of that member’s coverage records failed. |
+| Confirming completion | What response tells us the work is actually finished? “Request received” may not mean “changes saved.” |
+| Retrying requests | If we send the same request again, how does the service prevent duplicate changes? How do we check what happened when we never received a response? |
+| Request limits | How many contracts, members and coverage records can we send at once? How large can the JSON be? |
+| JSON format | Which JSON structure will be accepted initially? What date formats should we use? How do we say “leave this unchanged” or “revoke this consent”? |
+| Consent manager | How do we identify someone giving or managing consent on another member’s behalf? |
 
-The member-demographics service should not be expected to resolve a particular payer-consent GUID from demographics alone. If the upsert requires that GUID, agree on a separate consent-identity lookup or an endpoint rule that makes it unnecessary.
-
-Use realistic request/response fixtures to settle these decisions. Agree on a stable launch shape early; keep endpoint changes localized in the service adapters and payload builders.
+Work through realistic sample requests and responses together. Agree on the initial JSON format early. Keep the code that talks to the services and builds the outgoing JSON separate so later changes are easier to make.
 
 ## 5. Error files and partial results
 
-| Situation | Processing | Customer return | IT report |
+| Situation | What the adapter does | What the customer receives | What IT receives |
 | --- | --- | --- | --- |
-| HARD preparation error | No upsert for the file | Original parsed records with code/remarks when a complete return can be produced | File-level failure and affected source references |
-| MEDIUM contract error | Exclude that contract; continue others | Original rows belonging to the rejected contract | Triggering error and contract scope |
-| SOFT warning | Continue | Include only if the agreed return policy requests warnings | Always retain the warning |
-| Confirmed service member failure | Preserve confirmed successes according to service semantics | That member’s submitted original rows | Request, contract/member identity and source references |
-| Uncertain send/result | Pause or retry only under the agreed replay contract | Do not invent member failures or publish an unresolved return as final | Operational hold and reconciliation details |
+| File cannot be prepared — HARD | Stops before sending any consent updates | Original records with code and remarks, if the file can be read completely | Why the file failed and which records were affected |
+| One contract is invalid — MEDIUM | Skips that contract and continues with the others | That contract’s original records with code and remarks | What failed and which contract was rejected |
+| Warning — SOFT | Continues processing | Warning records only if the agreed customer-return rules require them | The warning and affected records |
+| Service confirms a member failed | Records the failure and keeps any confirmed successes | That member’s submitted original records with code and remarks | The request, member identifiers and affected source records |
+| We cannot tell whether a request succeeded | Holds the affected work for review, or retries if the service supports safe retries | No final result claiming those records failed until we know what happened | What is uncertain and what needs to be checked |
 
-The customer file is in the incoming format and appends code/remarks. For fixed width, agree on the appended widths. For XML/JSON, preserve original record structure and add the fields. A malformed file may prevent a complete source-format return; retain the original and require review rather than pretending a parsed prefix is the whole file.
+Assumption: The customer error return file uses the **same file format as the input they sent**, with **code** and **remarks** added to each returned record. Agree on where those fields go (and for fixed-width files if ever they are needed, we will need to agree how many characters they occupy).
 
-An outside process handles customer transmission and IT email. Customer remarks should be approved business text; IT diagnostics can be more detailed without exposing credentials or blindly copying response bodies.
+If a file is too malformed to read completely, keep the original for review. Do not return just the readable portion as though it represents the entire file.
 
-A later LIVE hard failure cannot roll back requests already acknowledged by the service. Record those successes accurately and stop/reconcile the remaining work. Never return already accepted rows as failed simply because a later batch failed.
+The adapter writes the files. 
+Need to flesh out the process that sends the customer file and emails the DBS IT report (TBD). 
+Customer remarks should use agreed, understandable wording. 
+DBS IT gets more technical detail, with credentials and sensitive response content excluded.
 
-## 6. Acceptance scenario
+Discussion point --> **Stopping later does not undo earlier successful requests.** Keep those successes recorded. Never mark accepted records as failed because a later request failed.
 
-Use synthetic records representing several contracts and multiple members per contract. Put some rows for the same contract in different parts of the file.
+## 6. Prove the complete flow works
 
-1. Include provider-only, payer-only and combined consent changes.
-2. Include multiple payer coverages and, if the agreed API allows them, multiple distinct payer consents for a member.
-3. Make one contract invalid and add a nonblocking warning to another.
-4. Deliver valid contracts and verify the agreed one-contract/bounded-array behavior.
-5. Return the correct original failed records with code/remarks; retain every diagnostic finding for IT.
-6. Have a compatible test endpoint reject a specific member and verify the other members are handled according to its partial-success contract.
-7. Interrupt delivery after one request is acknowledged. Restart and prove that it is not sent again.
-8. Simulate a lost response and demonstrate reconciliation or safe idempotent replay with the same body/key.
+Could use made-up test data with several contracts and multiple members per contract. 
+Could put some records for the same contract in different places in the file.
 
-Also test malformed input, ambiguous member matching, incomplete group context, request limits and output-file write failure. Use measured representative file sizes; the initial design must have a documented supported limit.
+1. Include provider consent changes, payer consent changes and records containing both.
+2. Include multiple payer consents/coverages for one member.
+3. Make one contract invalid and give another a warning that allows processing to continue.
+4. Send the valid contracts using the agreed request format and limits.
+5. Check that the customer gets the correct original failed records with code and remarks, and DBS IT gets all errors and warnings.
+6. Have the test service reject a specific member. Check that the adapter handles the other members according to the agreed rules.
+7. Stop the adapter after one request succeeds. Restart it and prove that the successful request is not sent again.
+8. Simulate a request where the response is lost. Prove that we can check the outcome or safely resend the same request without duplicate changes.
 
-## 7. Defer from the first release
+Also test unreadable files, multiple possible member matches, missing group information, oversized requests and failures while writing result files.
 
-- Multiple workers and distributed claiming.
-- A configuration-management UI or a general transformation language.
-- Unlimited-file streaming or arbitrary joins across files.
-- Automatic email/customer delivery inside the adapter application.
-- Generalized scheduling and advanced operational dashboards.
+Test realistic file sizes and document the largest file the January release supports (but we probably won't know this because I doubt we'll even have a file / partner onboarded by Jan)
 
-The POC provides examples of many capabilities. The initial production implementation should be judged against the agreed launch feeds, service contracts, acceptance scenario and support needs.
+## 7. Leave these out of the January release
+
+- Several workers processing files at the same time.
+- A configuration screen or a general-purpose mapping language.
+- Files of unlimited size or combining unrelated files.
+- Sending customer files or IT emails from inside the adapter.
+- A general scheduling system or advanced dashboards.
+
+The POC demonstrates possibilities. The January release needs to reliably handle the agreed input files, call the services correctly, produce accurate results and give support enough information to investigate problems.
 
 Relevant POC guides: [code walkthrough](developer-walkthrough.md), [group/member lookup](group-member-lookups.md), [contract batching](contract-batching.md), [error/result handling](error-handling.md), and [implemented runtime diagrams](runtime-diagrams.md).
