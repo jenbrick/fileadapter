@@ -5,6 +5,10 @@ This Spring Boot/Gradle POC reads files and turns them into JSON requests. It ke
 
 Built with Java 17, Spring Boot 3.5.16, Gradle Wrapper 8.14.3, Jackson and Apache Commons CSV. H2 on disk keeps processing history.
 
+## Class guides
+
+Use the [full POC class list](docs/poc-class-guide.md) for every production class, supporting type and test class, or the [January class list](docs/january-class-guide.md) for what to reuse, adapt or add for the proposed release. Each existing class links to its source.
+
 ## What we propose for January
 
 Start with the [January overview](docs/january-delivery-plan-overview-v2.md), then the [detailed plan](docs/january-delivery-plan-detailed-v2.md) for scope, service decisions and acceptance checks. The [January class and sequence diagrams](docs/january-release-diagrams-v2.md) show the proposed design, successful flow and errors.
