@@ -4,6 +4,10 @@ A Spring Boot / Gradle proof of concept for adapting files into configurable JSO
 
 Java 17 · Spring Boot 3.5.16 · Gradle Wrapper 8.14.3 · Jackson · Apache Commons CSV · local H2 ledger.
 
+## Planning the first production release
+
+Start with the [simple month-one overview](docs/month-one-overview.md) for the team discussion, then use the [detailed delivery plan](docs/month-one-delivery-plan.md) for scope, API decisions, acceptance and the four-week sequence. Both include Mermaid diagrams and distinguish the proposed initial release from the current POC.
+
 ## Group lookup before member lookup
 
 The consent profiles now run **external group ID → group service → internal group number + customer ID → member demographics service → contract/PIN/member GUID → consent JSON**. `GroupEnricher` runs before `ConsentMemberEnricher`. The member service receives only the typed member payload plus resolved group context; consent preferences, payer/coverage data and the upsert JSON are excluded.
