@@ -17,7 +17,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import static org.assertj.core.api.Assertions.*;
 
-@SpringBootTest(properties={"ingestion.mode=LIVE","FLEXIBLE_LOOKUP_MODE=HTTP",
+@SpringBootTest(properties={"ingestion.mode=LIVE","FLEXIBLE_LOOKUP_MODE=HTTP","GROUP_LOOKUP_MODE=HTTP",
         "ingestion.delivery.response-contract=SCOPED_V1","ingestion.delivery.replay-safe=true","ingestion.delivery.max-attempts=1"})
 @ActiveProfiles("flexible-demo")
 @DirtiesContext
@@ -30,7 +30,7 @@ class ScopedServiceResultsTest {
     static volatile boolean complete=true;
     static final HttpServer SERVER=server();
     @DynamicPropertySource static void config(DynamicPropertyRegistry r){
-        r.add("ingestion.work-directory",WORK::toString);r.add("CONSENT_LOOKUP_URL",()->base()+"/resolve");r.add("ingestion.delivery.endpoint",()->base()+"/upsert");
+        r.add("ingestion.work-directory",WORK::toString);r.add("CONSENT_LOOKUP_URL",()->base()+"/resolve");r.add("GROUP_LOOKUP_URL",()->base()+"/groups");r.add("ingestion.delivery.endpoint",()->base()+"/upsert");
     }
     @Autowired FileProcessor processor;
     @Autowired ProcessingLedger ledger;
@@ -88,7 +88,14 @@ class ScopedServiceResultsTest {
     }
     static HttpServer server(){try{
         var server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
-        server.createContext("/resolve",e->{LOOKUPS.incrementAndGet();var input=JSON.readTree(e.getRequestBody());int i=Map.of("Alex",1,"John",2,"Morgan",3,"Taylor",4,"Jamie",5).get(input.path("FIRST_NAME").asText());
+        server.createContext("/groups",exchange->{
+            var request=JSON.readTree(exchange.getRequestBody());
+            int group=Integer.parseInt(request.path("externalGroupId").asText().replace("EXT-GROUP-",""));
+            var result=JSON.createObjectNode().put("internalGroupNumber",group+"000"+group).put("customerId","CUST-"+group);
+            byte[] body=JSON.writeValueAsBytes(result);exchange.getResponseHeaders().set("Content-Type","application/json");
+            exchange.sendResponseHeaders(200,body.length);exchange.getResponseBody().write(body);exchange.close();
+        });
+        server.createContext("/resolve",e->{LOOKUPS.incrementAndGet();var input=JSON.readTree(e.getRequestBody());int i=Map.of("Alex",1,"John",2,"Morgan",3,"Taylor",4,"Jamie",5).get(input.path("firstName").asText());
             var identity=JSON.createObjectNode().put("contract",i<=2?"123456789":i<=4?"222222222":"333333333").put("pin",String.format("%03d",i<=4?(i-1)%2+1:1)).put("contractMemberGuid",String.format("MEMBER-GUID-%03d",i));
             var result=JSON.createObjectNode();result.set("owner",identity);result.set("manager",identity);result.putNull("providerConsentGuid");result.putNull("payerConsentGuid");send(e,200,JSON.writeValueAsBytes(result));});
         server.createContext("/upsert",e->{int n=POSTS.incrementAndGet();var input=JSON.readTree(e.getRequestBody());if(n==failAt){send(e,503,new byte[0]);return;}

@@ -11,10 +11,23 @@ ingestion:
         format: DELIMITED
         delimiter: ','
         header-mode: FIRST_RECORD
+      group: &groupLookup
+        version: group-lookup-v1
+        source-field: EXTERNAL_GROUP_ID
+        lookup:
+          mode: ${GROUP_LOOKUP_MODE:FIXTURE}
+          endpoint: ${GROUP_LOOKUP_URL:http://127.0.0.1:8083/groups/resolve}
+          connect-timeout: 5s
+          read-timeout: 10s
+          fixtures:
+          - external-group-id: EXT-GROUP-1
+            result: {internal-group-number: '10001', customer-id: CUST-1}
+          - external-group-id: EXT-GROUP-2
+            result: {internal-group-number: '20002', customer-id: CUST-2}
+          - external-group-id: EXT-GROUP-3
+            result: {internal-group-number: '30003', customer-id: CUST-3}
       consent: &memberLookup
         version: flexible-lookup-v1
-        provider-target: PCDS
-        payer-target: P2PDS
         date-pattern: uuuu-MM-dd
         lookup:
           mode: ${FLEXIBLE_LOOKUP_MODE:FIXTURE}
@@ -23,7 +36,9 @@ ingestion:
           read-timeout: 10s
           fixtures:
           - match:
-              EXTERNAL_CONTRACT_ID: EXTERNAL-001
+              externalContractId: EXTERNAL-001
+              internalGroupNumber: '10001'
+              customerId: CUST-1
             result:
               owner:
                 contract: '123456789'
@@ -36,7 +51,9 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXTERNAL-002
+              externalContractId: EXTERNAL-002
+              internalGroupNumber: '10001'
+              customerId: CUST-1
             result:
               owner:
                 contract: '123456789'
@@ -53,6 +70,7 @@ ingestion:
         scope: FILE
         max-records: 1000
         enrichers:
+        - group-context
         - consent-member
         input-contract:
         - path: PROVIDER_CLINICAL_CONSENT_PREFERENCE
@@ -255,6 +273,7 @@ ingestion:
         format: DELIMITED
         delimiter: '|'
         header-mode: FIRST_RECORD
+      group: *groupLookup
       consent: *memberLookup
       projection: *consentProjection
     - id: flexible-xml-v1
@@ -264,6 +283,7 @@ ingestion:
         format: XML
         xml:
           record-path: /members/member
+      group: *groupLookup
       consent: *memberLookup
       projection: *consentProjection
     - id: flexible-json-v1
@@ -273,6 +293,7 @@ ingestion:
         format: JSON
         json:
           mode: ARRAY
+      group: *groupLookup
       consent: *memberLookup
       projection: *consentProjection
     - id: flexible-fixed-v1
@@ -386,6 +407,7 @@ ingestion:
           - name: SOURCE_USER
             offset: 1056
             length: 32
+      group: *groupLookup
       consent: *memberLookup
       projection: *consentProjection
     - id: flexible-root-array-v1
@@ -395,6 +417,7 @@ ingestion:
         format: DELIMITED
         delimiter: ','
         header-mode: FIRST_RECORD
+      group: *groupLookup
       consent: *memberLookup
       projection:
         <<: *consentProjection
@@ -408,12 +431,14 @@ ingestion:
         format: DELIMITED
         delimiter: ','
         header-mode: FIRST_RECORD
+      group: *groupLookup
       consent: *memberLookup
       projection:
         version: flexible-reshaped-v1
         scope: FILE
         max-records: 1000
         enrichers:
+        - group-context
         - consent-member
         input-contract:
         - path: PROVIDER_CLINICAL_CONSENT_PREFERENCE
@@ -647,6 +672,7 @@ ingestion:
         format: DELIMITED
         delimiter: ';'
         header-mode: FIRST_RECORD
+      group: *groupLookup
       consent: *memberLookup
       projection: *consentProjection
     - id: flexible-tab-v1
@@ -656,6 +682,7 @@ ingestion:
         format: DELIMITED
         delimiter: "\t"
         header-mode: FIRST_RECORD
+      group: *groupLookup
       consent: *memberLookup
       projection: *consentProjection
     - id: flexible-csv-noheader-v1
@@ -666,6 +693,7 @@ ingestion:
         delimiter: ','
         header-mode: NONE
         columns: ["EXTERNAL_CONTRACT_ID", "RELATIONSHIP_CODE", "LAST_NAME", "FIRST_NAME", "MIDDLE_NAME", "GENDER_CODE", "DATE_OF_BIRTH", "EXTERNAL_GROUP_ID", "PROVIDER_CLINICAL_CONSENT_EFFECTIVE_DATE", "PROVIDER_CLINICAL_CONSENT_PREFERENCE", "PAYER_CONSENT_PREFERENCE_EFFECTIVE_DATE", "PAYER_CONSENT_PREFERENCE", "PAYER_NAME", "PAYER_ADDRESS_1", "PAYER_ADDRESS_2", "PAYER_CITY", "PAYER_STATE", "PAYER_ZIP", "PAYER_ID", "PAYER_POLICY_ID", "PAYER_GROUP_NUMBER", "PAYER_SUBSCRIBER_LAST_NAME", "PAYER_SUBSCRIBER_FIRST_NAME", "PAYER_SUBSCRIBER_MIDDLE_NAME", "PAYER_DATE_OF_BIRTH", "PAYER_GENDER_CODE", "PAYER_EFFECTIVE_DATE", "PAYER_CANCEL_DATE", "PAYER_PLAN_TYPE", "PAYER_COVERAGE_TYPE", "PROVIDER_SOURCE_SYSTEM", "PAYER_SOURCE_SYSTEM", "SOURCE_DATETIME", "SOURCE_USER"]
+      group: *groupLookup
       consent: *memberLookup
       projection: *consentProjection
     - id: flexible-psv-noheader-v1
@@ -676,6 +704,7 @@ ingestion:
         delimiter: '|'
         header-mode: NONE
         columns: ["EXTERNAL_CONTRACT_ID", "RELATIONSHIP_CODE", "LAST_NAME", "FIRST_NAME", "MIDDLE_NAME", "GENDER_CODE", "DATE_OF_BIRTH", "EXTERNAL_GROUP_ID", "PROVIDER_CLINICAL_CONSENT_EFFECTIVE_DATE", "PROVIDER_CLINICAL_CONSENT_PREFERENCE", "PAYER_CONSENT_PREFERENCE_EFFECTIVE_DATE", "PAYER_CONSENT_PREFERENCE", "PAYER_NAME", "PAYER_ADDRESS_1", "PAYER_ADDRESS_2", "PAYER_CITY", "PAYER_STATE", "PAYER_ZIP", "PAYER_ID", "PAYER_POLICY_ID", "PAYER_GROUP_NUMBER", "PAYER_SUBSCRIBER_LAST_NAME", "PAYER_SUBSCRIBER_FIRST_NAME", "PAYER_SUBSCRIBER_MIDDLE_NAME", "PAYER_DATE_OF_BIRTH", "PAYER_GENDER_CODE", "PAYER_EFFECTIVE_DATE", "PAYER_CANCEL_DATE", "PAYER_PLAN_TYPE", "PAYER_COVERAGE_TYPE", "PROVIDER_SOURCE_SYSTEM", "PAYER_SOURCE_SYSTEM", "SOURCE_DATETIME", "SOURCE_USER"]
+      group: *groupLookup
       consent: *memberLookup
       projection: *consentProjection
     - id: flexible-json-object-v1
@@ -685,6 +714,7 @@ ingestion:
         format: JSON
         json:
           mode: OBJECT
+      group: *groupLookup
       consent: *memberLookup
       projection: *consentProjection
     - id: flexible-json-lines-v1
@@ -694,6 +724,7 @@ ingestion:
         format: JSON
         json:
           mode: LINES
+      group: *groupLookup
       consent: *memberLookup
       projection: *consentProjection
     - id: flexible-contract-envelope-v1
@@ -703,6 +734,7 @@ ingestion:
         format: DELIMITED
         delimiter: ','
         header-mode: FIRST_RECORD
+      group: *groupLookup
       consent: *memberLookup
       projection:
         <<: *consentProjection
@@ -722,10 +754,9 @@ ingestion:
         format: DELIMITED
         delimiter: ','
         header-mode: FIRST_RECORD
+      group: *groupLookup
       consent:
         version: flexible-lookup-v1
-        provider-target: PCDS
-        payer-target: P2PDS
         date-pattern: uuuu-MM-dd
         lookup:
           mode: ${FLEXIBLE_LOOKUP_MODE:FIXTURE}
@@ -734,10 +765,12 @@ ingestion:
           read-timeout: 10s
           fixtures:
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
-              FIRST_NAME: Alex
-              LAST_NAME: Example
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-A
+              firstName: Alex
+              lastName: Example
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '10001'
+              customerId: CUST-1
             result:
               owner:
                 contract: '123456789'
@@ -750,10 +783,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
-              FIRST_NAME: John
-              LAST_NAME: Smith
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-A
+              firstName: John
+              lastName: Smith
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '10001'
+              customerId: CUST-1
             result:
               owner:
                 contract: '123456789'
@@ -766,10 +801,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
-              FIRST_NAME: Morgan
-              LAST_NAME: Chen
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-B
+              firstName: Morgan
+              lastName: Chen
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '20002'
+              customerId: CUST-2
             result:
               owner:
                 contract: '222222222'
@@ -782,10 +819,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
-              FIRST_NAME: Taylor
-              LAST_NAME: Reed
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-B
+              firstName: Taylor
+              lastName: Reed
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '20002'
+              customerId: CUST-2
             result:
               owner:
                 contract: '222222222'
@@ -798,10 +837,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-C
-              FIRST_NAME: Jamie
-              LAST_NAME: Lee
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-C
+              firstName: Jamie
+              lastName: Lee
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '30003'
+              customerId: CUST-3
             result:
               owner:
                 contract: '333333333'
@@ -818,6 +859,7 @@ ingestion:
         scope: GROUPED
         max-records: 1000
         enrichers:
+        - group-context
         - consent-member
         input-contract:
         - path: PROVIDER_CLINICAL_CONSENT_PREFERENCE
@@ -1035,10 +1077,9 @@ ingestion:
         format: DELIMITED
         delimiter: ','
         header-mode: FIRST_RECORD
+      group: *groupLookup
       consent:
         version: flexible-lookup-v1
-        provider-target: PCDS
-        payer-target: P2PDS
         date-pattern: uuuu-MM-dd
         lookup:
           mode: ${FLEXIBLE_LOOKUP_MODE:FIXTURE}
@@ -1047,10 +1088,12 @@ ingestion:
           read-timeout: 10s
           fixtures:
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
-              FIRST_NAME: Alex
-              LAST_NAME: Example
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-A
+              firstName: Alex
+              lastName: Example
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '10001'
+              customerId: CUST-1
             result:
               owner:
                 contract: '123456789'
@@ -1063,10 +1106,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
-              FIRST_NAME: John
-              LAST_NAME: Smith
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-A
+              firstName: John
+              lastName: Smith
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '10001'
+              customerId: CUST-1
             result:
               owner:
                 contract: '123456789'
@@ -1079,10 +1124,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
-              FIRST_NAME: Morgan
-              LAST_NAME: Chen
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-B
+              firstName: Morgan
+              lastName: Chen
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '20002'
+              customerId: CUST-2
             result:
               owner:
                 contract: '222222222'
@@ -1095,10 +1142,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
-              FIRST_NAME: Taylor
-              LAST_NAME: Reed
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-B
+              firstName: Taylor
+              lastName: Reed
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '20002'
+              customerId: CUST-2
             result:
               owner:
                 contract: '222222222'
@@ -1111,10 +1160,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-C
-              FIRST_NAME: Jamie
-              LAST_NAME: Lee
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-C
+              firstName: Jamie
+              lastName: Lee
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '30003'
+              customerId: CUST-3
             result:
               owner:
                 contract: '333333333'
@@ -1131,6 +1182,7 @@ ingestion:
         scope: GROUPED
         max-records: 1000
         enrichers:
+        - group-context
         - consent-member
         input-contract:
         - path: PROVIDER_CLINICAL_CONSENT_PREFERENCE
@@ -1354,10 +1406,9 @@ ingestion:
         format: DELIMITED
         delimiter: ','
         header-mode: FIRST_RECORD
+      group: *groupLookup
       consent:
         version: flexible-lookup-v1
-        provider-target: PCDS
-        payer-target: P2PDS
         date-pattern: uuuu-MM-dd
         lookup:
           mode: ${FLEXIBLE_LOOKUP_MODE:FIXTURE}
@@ -1366,10 +1417,12 @@ ingestion:
           read-timeout: 10s
           fixtures:
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
-              FIRST_NAME: Alex
-              LAST_NAME: Example
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-A
+              firstName: Alex
+              lastName: Example
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '10001'
+              customerId: CUST-1
             result:
               owner:
                 contract: '123456789'
@@ -1382,10 +1435,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
-              FIRST_NAME: John
-              LAST_NAME: Smith
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-A
+              firstName: John
+              lastName: Smith
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '10001'
+              customerId: CUST-1
             result:
               owner:
                 contract: '123456789'
@@ -1398,10 +1453,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
-              FIRST_NAME: Morgan
-              LAST_NAME: Chen
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-B
+              firstName: Morgan
+              lastName: Chen
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '20002'
+              customerId: CUST-2
             result:
               owner:
                 contract: '222222222'
@@ -1414,10 +1471,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
-              FIRST_NAME: Taylor
-              LAST_NAME: Reed
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-B
+              firstName: Taylor
+              lastName: Reed
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '20002'
+              customerId: CUST-2
             result:
               owner:
                 contract: '222222222'
@@ -1430,10 +1489,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-C
-              FIRST_NAME: Jamie
-              LAST_NAME: Lee
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-C
+              firstName: Jamie
+              lastName: Lee
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '30003'
+              customerId: CUST-3
             result:
               owner:
                 contract: '333333333'
@@ -1450,6 +1511,7 @@ ingestion:
         scope: GROUPED
         max-records: 1000
         enrichers:
+        - group-context
         - consent-member
         input-contract:
         - path: PROVIDER_CLINICAL_CONSENT_PREFERENCE
@@ -1709,10 +1771,9 @@ ingestion:
         format: DELIMITED
         delimiter: ','
         header-mode: FIRST_RECORD
+      group: *groupLookup
       consent:
         version: flexible-lookup-v1
-        provider-target: PCDS
-        payer-target: P2PDS
         date-pattern: uuuu-MM-dd
         lookup:
           mode: ${FLEXIBLE_LOOKUP_MODE:FIXTURE}
@@ -1721,10 +1782,12 @@ ingestion:
           read-timeout: 10s
           fixtures:
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
-              FIRST_NAME: Alex
-              LAST_NAME: Example
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-A
+              firstName: Alex
+              lastName: Example
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '10001'
+              customerId: CUST-1
             result:
               owner:
                 contract: '123456789'
@@ -1737,10 +1800,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
-              FIRST_NAME: John
-              LAST_NAME: Smith
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-A
+              firstName: John
+              lastName: Smith
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '10001'
+              customerId: CUST-1
             result:
               owner:
                 contract: '123456789'
@@ -1753,10 +1818,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
-              FIRST_NAME: Morgan
-              LAST_NAME: Chen
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-B
+              firstName: Morgan
+              lastName: Chen
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '20002'
+              customerId: CUST-2
             result:
               owner:
                 contract: '222222222'
@@ -1769,10 +1836,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
-              FIRST_NAME: Taylor
-              LAST_NAME: Reed
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-B
+              firstName: Taylor
+              lastName: Reed
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '20002'
+              customerId: CUST-2
             result:
               owner:
                 contract: '222222222'
@@ -1785,10 +1854,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-C
-              FIRST_NAME: Jamie
-              LAST_NAME: Lee
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-C
+              firstName: Jamie
+              lastName: Lee
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '30003'
+              customerId: CUST-3
             result:
               owner:
                 contract: '333333333'
@@ -1805,6 +1876,7 @@ ingestion:
         scope: GROUPED
         max-records: 1000
         enrichers:
+        - group-context
         - consent-member
         input-contract:
         - path: PROVIDER_CLINICAL_CONSENT_PREFERENCE
@@ -2040,10 +2112,9 @@ ingestion:
         format: DELIMITED
         delimiter: ','
         header-mode: FIRST_RECORD
+      group: *groupLookup
       consent:
         version: flexible-lookup-v1
-        provider-target: PCDS
-        payer-target: P2PDS
         date-pattern: uuuu-MM-dd
         lookup:
           mode: ${FLEXIBLE_LOOKUP_MODE:FIXTURE}
@@ -2052,10 +2123,12 @@ ingestion:
           read-timeout: 10s
           fixtures:
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
-              FIRST_NAME: Alex
-              LAST_NAME: Example
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-A
+              firstName: Alex
+              lastName: Example
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '10001'
+              customerId: CUST-1
             result:
               owner:
                 contract: '123456789'
@@ -2068,10 +2141,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
-              FIRST_NAME: John
-              LAST_NAME: Smith
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-A
+              firstName: John
+              lastName: Smith
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '10001'
+              customerId: CUST-1
             result:
               owner:
                 contract: '123456789'
@@ -2084,10 +2159,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
-              FIRST_NAME: Morgan
-              LAST_NAME: Chen
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-B
+              firstName: Morgan
+              lastName: Chen
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '20002'
+              customerId: CUST-2
             result:
               owner:
                 contract: '222222222'
@@ -2100,10 +2177,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
-              FIRST_NAME: Taylor
-              LAST_NAME: Reed
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-B
+              firstName: Taylor
+              lastName: Reed
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '20002'
+              customerId: CUST-2
             result:
               owner:
                 contract: '222222222'
@@ -2116,10 +2195,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-C
-              FIRST_NAME: Jamie
-              LAST_NAME: Lee
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-C
+              firstName: Jamie
+              lastName: Lee
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '30003'
+              customerId: CUST-3
             result:
               owner:
                 contract: '333333333'
@@ -2136,6 +2217,7 @@ ingestion:
         scope: GROUPED
         max-records: 1000
         enrichers:
+        - group-context
         - consent-member
         input-contract:
         - path: PROVIDER_CLINICAL_CONSENT_PREFERENCE
@@ -2365,10 +2447,9 @@ ingestion:
         format: DELIMITED
         delimiter: ','
         header-mode: FIRST_RECORD
+      group: *groupLookup
       consent:
         version: flexible-lookup-v1
-        provider-target: PCDS
-        payer-target: P2PDS
         date-pattern: uuuu-MM-dd
         lookup:
           mode: ${FLEXIBLE_LOOKUP_MODE:FIXTURE}
@@ -2377,10 +2458,12 @@ ingestion:
           read-timeout: 10s
           fixtures:
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
-              FIRST_NAME: Alex
-              LAST_NAME: Example
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-A
+              firstName: Alex
+              lastName: Example
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '10001'
+              customerId: CUST-1
             result:
               owner:
                 contract: '123456789'
@@ -2393,10 +2476,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-A
-              FIRST_NAME: John
-              LAST_NAME: Smith
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-A
+              firstName: John
+              lastName: Smith
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '10001'
+              customerId: CUST-1
             result:
               owner:
                 contract: '123456789'
@@ -2409,10 +2494,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
-              FIRST_NAME: Morgan
-              LAST_NAME: Chen
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-B
+              firstName: Morgan
+              lastName: Chen
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '20002'
+              customerId: CUST-2
             result:
               owner:
                 contract: '222222222'
@@ -2425,10 +2512,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-B
-              FIRST_NAME: Taylor
-              LAST_NAME: Reed
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-B
+              firstName: Taylor
+              lastName: Reed
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '20002'
+              customerId: CUST-2
             result:
               owner:
                 contract: '222222222'
@@ -2441,10 +2530,12 @@ ingestion:
               providerConsentGuid: null
               payerConsentGuid: null
           - match:
-              EXTERNAL_CONTRACT_ID: EXT-CONTRACT-C
-              FIRST_NAME: Jamie
-              LAST_NAME: Lee
-              DATE_OF_BIRTH: '1980-01-01'
+              externalContractId: EXT-CONTRACT-C
+              firstName: Jamie
+              lastName: Lee
+              dateOfBirth: '1980-01-01'
+              internalGroupNumber: '30003'
+              customerId: CUST-3
             result:
               owner:
                 contract: '333333333'
@@ -2461,6 +2552,7 @@ ingestion:
         scope: GROUPED
         max-records: 1000
         enrichers:
+        - group-context
         - consent-member
         input-contract:
         - path: PROVIDER_CLINICAL_CONSENT_PREFERENCE

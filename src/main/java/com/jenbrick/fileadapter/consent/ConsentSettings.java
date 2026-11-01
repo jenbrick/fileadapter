@@ -7,9 +7,8 @@ import java.util.List;
 import java.util.Map;
 
 /** Settings for the optional member lookup; output rules belong to the projection. */
-@com.fasterxml.jackson.annotation.JsonIgnoreProperties(value = {"preferences", "relationships", "sourceSystem", "sourceTransactionIdentifier"})
-public record ConsentSettings(String version, String providerTarget, String payerTarget,
-        String datePattern,
+@com.fasterxml.jackson.annotation.JsonIgnoreProperties(value = {"preferences", "relationships", "sourceSystem", "sourceTransactionIdentifier", "providerTarget", "payerTarget"})
+public record ConsentSettings(String version, String datePattern,
         String sourceDateTime, Lookup lookup) {
     public enum LookupMode { FIXTURE, HTTP }
     public record Lookup(LookupMode mode, URI endpoint, Duration connectTimeout,
@@ -20,8 +19,7 @@ public record ConsentSettings(String version, String providerTarget, String paye
                              String providerConsentGuid, String payerConsentGuid) {}
 
     public void validate() {
-        required(version); required(providerTarget); required(payerTarget);
-        if (providerTarget.equals(payerTarget)) throw new IllegalArgumentException("Consent targets must differ");
+        required(version);
         required(datePattern);
         DateTimeFormatter.ofPattern(datePattern);
         if (sourceDateTime != null && !sourceDateTime.isBlank()) java.time.OffsetDateTime.parse(sourceDateTime);

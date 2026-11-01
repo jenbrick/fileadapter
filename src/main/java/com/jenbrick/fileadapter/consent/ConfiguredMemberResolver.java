@@ -14,13 +14,15 @@ import org.springframework.web.client.RestClient;
 public class ConfiguredMemberResolver implements MemberResolver {
     private final RestClient.Builder builder;
     private final String token;
+    private final com.fasterxml.jackson.databind.ObjectMapper json;
     public ConfiguredMemberResolver(RestClient.Builder builder,
-            @Value("${consent.lookup-bearer-token:}") String token) {
+            @Value("${consent.lookup-bearer-token:}") String token, com.fasterxml.jackson.databind.ObjectMapper json) {
         this.builder = builder;
-        this.token = token;
+        this.token = token;this.json=json;
     }
-    @Override public Resolution resolve(ObjectNode criteria, ConsentSettings settings) {
+    @Override public Resolution resolve(MemberLookupPayload member, ConsentSettings settings) {
         var lookup = settings.lookup();
+        com.fasterxml.jackson.databind.JsonNode criteria=json.valueToTree(member);
         if (lookup.mode() == ConsentSettings.LookupMode.FIXTURE) {
             var matches = lookup.fixtures().stream().filter(f -> f.match() != null && !f.match().isEmpty()
                     && f.match().entrySet().stream().allMatch(e ->
@@ -36,7 +38,7 @@ public class ConfiguredMemberResolver implements MemberResolver {
         var request = client.post().uri(lookup.endpoint()).contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.APPLICATION_JSON);
         if (!token.isBlank()) request.headers(h -> h.setBearerAuth(token));
-        return request.body(criteria).exchange((sent, response) -> {
+        return request.body(member).exchange((sent, response) -> {
             if (response.getStatusCode().value() != 200) {
                 throw new IllegalArgumentException("Member lookup requires a unique successful resolution");
             }

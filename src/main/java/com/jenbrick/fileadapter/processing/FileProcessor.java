@@ -166,6 +166,11 @@ public class FileProcessor {
         if (run.status().equals("FINALIZING")) return finish(run, snapshot);
 
         if (run.status().equals("STAGING")) {
+            var chain=snapshot.profile().projection().enrichers();
+            if(chain!=null && chain.contains("consent-member") && !chain.contains("group-context")) {
+                pause(id,0,"Legacy STAGING member lookup snapshot requires the previous release or reconciled fresh intake");
+                return false;
+            }
             long[] currentRecord = {0};
             long[] requestNumber = {0};
             var originalRows = new java.util.ArrayList<com.jenbrick.fileadapter.source.SourceRecord>();

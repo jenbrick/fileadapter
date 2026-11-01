@@ -23,7 +23,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import static org.assertj.core.api.Assertions.*;
 
-@SpringBootTest(properties={"ingestion.mode=LIVE","FLEXIBLE_LOOKUP_MODE=HTTP",
+@SpringBootTest(properties={"ingestion.mode=LIVE","FLEXIBLE_LOOKUP_MODE=HTTP","GROUP_LOOKUP_MODE=HTTP",
         "ingestion.delivery.replay-safe=true","ingestion.delivery.max-attempts=1"})
 @ActiveProfiles("flexible-demo")
 @DirtiesContext
@@ -40,7 +40,7 @@ class FlexibleProjectionLiveTest {
     static final HttpServer SERVER=server();
     @DynamicPropertySource static void config(DynamicPropertyRegistry r){
         r.add("ingestion.work-directory",WORK::toString);
-        r.add("CONSENT_LOOKUP_URL",()->base()+"/resolve");r.add("ingestion.delivery.endpoint",()->base()+"/upsert");
+        r.add("CONSENT_LOOKUP_URL",()->base()+"/resolve");r.add("GROUP_LOOKUP_URL",()->base()+"/groups");r.add("ingestion.delivery.endpoint",()->base()+"/upsert");
     }
     @Autowired FileProcessor processor;
     @Autowired ProcessingLedger ledger;
@@ -129,6 +129,7 @@ class FlexibleProjectionLiveTest {
                 profiles.resolve(Path.of("flexible-consents.csv"),null),
                 com.jenbrick.fileadapter.config.IngestionProperties.Mode.LIVE,properties.delivery()));
         var profile=(ObjectNode)snapshot.get("profile");profile.putNull("mappings");profile.putNull("contract");
+        profile.remove("group");((ObjectNode)profile.get("projection")).putArray("enrichers").add("consent-member");
         ((ObjectNode)profile.get("consent")).put("sourceSystem","MDB").put("sourceTransactionIdentifier","old-setting");
         ledger.create(id,"saved-flexible.csv","f".repeat(64),JSON.writeValueAsString(snapshot));
         ledger.stage(id,1,List.of(1L,2L,3L),Files.readString(Path.of("examples/flexible/expected-envelope.json")));
@@ -170,14 +171,21 @@ class FlexibleProjectionLiveTest {
     }
     static HttpServer server(){try{
         var server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
+        server.createContext("/groups",exchange->{
+            var request=JSON.readTree(exchange.getRequestBody());
+            int group=Integer.parseInt(request.path("externalGroupId").asText().replace("EXT-GROUP-",""));
+            var result=JSON.createObjectNode().put("internalGroupNumber",group+"000"+group).put("customerId","CUST-"+group);
+            byte[] body=JSON.writeValueAsBytes(result);exchange.getResponseHeaders().set("Content-Type","application/json");
+            exchange.sendResponseHeaders(200,body.length);exchange.getResponseBody().write(body);exchange.close();
+        });
         server.createContext("/resolve",exchange->{
             LOOKUPS.incrementAndGet();
             if(lookupStatus!=200){exchange.sendResponseHeaders(lookupStatus,-1);exchange.close();return;}
             var criteria=JSON.readTree(exchange.getRequestBody());
-            String external=criteria.path("EXTERNAL_CONTRACT_ID").asText();
+            String external=criteria.path("externalContractId").asText();
             String id=external.startsWith("EXT-CONTRACT-")
                     ? java.util.Map.of("Alex","001","John","002","Morgan","003","Taylor","004","Jamie","005")
-                        .get(criteria.path("FIRST_NAME").asText())
+                        .get(criteria.path("firstName").asText())
                     : external.substring("EXTERNAL-".length());
             int member=Integer.parseInt(id);
             String contract=member<=2?"123456789":member<=4?"222222222":"333333333";

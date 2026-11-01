@@ -79,7 +79,7 @@ public class ProjectionEngine {
             if(saved!=null) return new SourceRecord(row.number(),json.readTree(saved));
             var enriched=row;
             if(profile.projection().enrichers()!=null) for(String name:profile.projection().enrichers()) {
-                enriched=enrichers.get(name).enrich(enriched,profile,mode);
+                enriched=enrichers.get(name).enrichForRun(runId,enriched,profile,mode);
                 if(enriched==null || enriched.number()!=row.number() || !enriched.payload().isObject())
                     throw new IllegalArgumentException("Enricher must preserve row identity and return an object");
             }

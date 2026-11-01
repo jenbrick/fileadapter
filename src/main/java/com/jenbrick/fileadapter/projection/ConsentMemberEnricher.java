@@ -25,6 +25,9 @@ public class ConsentMemberEnricher implements RecordEnricher {
     @Override public void validate(Profile profile) {
         if(profile.consent()==null) throw new IllegalArgumentException("consent-member needs lookup settings");
         profile.consent().validate();
+        var names=profile.projection().enrichers();
+        if(names==null || names.indexOf("group-context")<0 || names.indexOf("group-context")>=names.indexOf(name()))
+            throw new IllegalArgumentException("group-context must precede consent-member");
     }
     @Override public SourceRecord enrich(SourceRecord source, Profile profile, Mode mode) {
         var settings=profile.consent();
@@ -36,20 +39,15 @@ public class ConsentMemberEnricher implements RecordEnricher {
         boolean provider=present(row.get("PROVIDER_CLINICAL_CONSENT_PREFERENCE"));
         boolean payer=present(row.get("PAYER_CONSENT_PREFERENCE"));
         if(!provider && !payer) return source;
-        var criteria=json.createObjectNode();
-        for(String field:List.of("EXTERNAL_CONTRACT_ID","RELATIONSHIP_CODE","LAST_NAME","FIRST_NAME",
-                "MIDDLE_NAME","GENDER_CODE","DATE_OF_BIRTH","EXTERNAL_GROUP_ID","PAYER_ID","PAYER_POLICY_ID","PAYER_CONSENT_KEY")) {
-            var value=row.get(field);
-            if(value!=null && !value.isNull() && !value.isTextual()) throw new IllegalArgumentException("Lookup fields must be strings");
-            if(value==null || value.isNull()) criteria.putNull(field); else criteria.put(field,value.asText().trim());
-        }
-        for(String field:List.of("EXTERNAL_CONTRACT_ID","RELATIONSHIP_CODE","LAST_NAME","FIRST_NAME","DATE_OF_BIRTH"))
-            if(!present(criteria.get(field))) throw new IllegalArgumentException("Required lookup field is missing");
-        criteria.put("DATE_OF_BIRTH",LocalDate.parse(criteria.path("DATE_OF_BIRTH").asText(),
-                DateTimeFormatter.ofPattern(settings.datePattern()).withResolverStyle(ResolverStyle.STRICT)).toString());
-        criteria.put("providerTarget",settings.providerTarget());criteria.put("payerTarget",settings.payerTarget());
-        criteria.put("resolveProvider",provider);criteria.put("resolvePayer",payer);
-        var result=resolver.resolve(criteria,settings);
+        var group=row.path("resolvedGroup");
+        String groupNumber=requiredText(group,"internalGroupNumber"),customerId=requiredText(group,"customerId");
+        var member=new com.jenbrick.fileadapter.consent.MemberLookupPayload(
+                requiredText(row,"EXTERNAL_CONTRACT_ID"),requiredText(row,"RELATIONSHIP_CODE"),
+                requiredText(row,"FIRST_NAME"),optionalText(row,"MIDDLE_NAME"),requiredText(row,"LAST_NAME"),
+                optionalText(row,"GENDER_CODE"),LocalDate.parse(requiredText(row,"DATE_OF_BIRTH"),
+                    DateTimeFormatter.ofPattern(settings.datePattern()).withResolverStyle(ResolverStyle.STRICT)).toString(),
+                groupNumber,customerId);
+        var result=resolver.resolve(member,settings);
         if(result==null) throw new IllegalArgumentException("Unresolved member");
         check(result.owner());check(result.manager());
         ObjectNode enriched=row.deepCopy();
@@ -61,6 +59,17 @@ public class ConsentMemberEnricher implements RecordEnricher {
                 ? OffsetDateTime.now(java.time.ZoneOffset.UTC).toString():settings.sourceDateTime());
         enriched.set("resolved",resolved);
         return new SourceRecord(source.number(),enriched);
+    }
+    private static String optionalText(JsonNode row,String field) {
+        var value=row.get(field);
+        if(value==null || value.isNull())return null;
+        if(!value.isTextual())throw new IllegalArgumentException("Member lookup fields must be strings");
+        return value.asText().trim();
+    }
+    private static String requiredText(JsonNode row,String field) {
+        String text=optionalText(row,field);
+        if(text==null || text.isBlank())throw new IllegalArgumentException("Required member/group field is missing: "+field);
+        return text;
     }
     private static boolean present(JsonNode value) {return value!=null && !value.isNull() && !value.asText().isBlank();}
     private static void check(ConsentSettings.MemberIdentity value) {

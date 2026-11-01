@@ -38,3 +38,6 @@ consent:
 results:
   customer-directory: ${CUSTOMER_RESULTS_DIR:}
   internal-directory: ${INTERNAL_RESULTS_DIR:}
+
+group:
+  lookup-bearer-token: ${GROUP_LOOKUP_BEARER_TOKEN:}
