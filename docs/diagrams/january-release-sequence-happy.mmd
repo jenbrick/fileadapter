@@ -20,7 +20,7 @@ sequenceDiagram
     end
     P->>P: ContractAssembler gathers members, consents and coverages
     P->>P: Select configured PayloadBuilder and enforce request limits
-    Note over P,S: Start with one contract per body; the limited multi-contract option remains a scope decision
+    Note over P,S: Start with one contract per body. the limited multi-contract option remains a scope decision
     P->>S: Save all prepared JSON bodies, request keys and source references
     loop Each saved request in order
         P->>S: Record send attempt before calling the service

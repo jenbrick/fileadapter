@@ -144,7 +144,7 @@ sequenceDiagram
     end
     P->>P: ContractAssembler gathers members, consents and coverages
     P->>P: Select configured PayloadBuilder and enforce request limits
-    Note over P,S: Start with one contract per body; the limited multi-contract option remains a scope decision
+    Note over P,S: Start with one contract per body. the limited multi-contract option remains a scope decision
     P->>S: Save all prepared JSON bodies, request keys and source references
     loop Each saved request in order
         P->>S: Record send attempt before calling the service
@@ -178,7 +178,7 @@ sequenceDiagram
         A-->>P: File cannot proceed
         P->>S: Save HARD findings and failed-file status
         P->>R: Write IT report and eligible original-record return
-        Note over P,R: No consent POST; incomplete parsed input is not published as a complete customer return
+        Note over P,R: No consent POST. incomplete parsed input is not published as a complete customer return
     end
     loop Each contract being prepared
         P->>A: Validate and resolve its member rows
@@ -218,9 +218,9 @@ sequenceDiagram
         end
     end
     P->>A: Build one-contract requests from eligible data under the agreed error policy
-    A-->>P: JSON bodies within agreed limits; multi-contract arrays are optional scope
+    A-->>P: JSON bodies within agreed limits. multi-contract arrays are optional scope
     P->>S: Save all request bodies, stable keys and source references
-    Note over P,S: Any remaining HARD preparation error stops delivery; an empty eligible set produces no POST
+    Note over P,S: Any remaining HARD preparation error stops delivery. an empty eligible set produces no POST
     loop Each saved request that is not already acknowledged
         loop Attempt same request until acknowledged, rejected or paused
         P->>S: Record attempt before POST
@@ -231,7 +231,7 @@ sequenceDiagram
         else Confirmed member or contract rejection with usable IDs
             E-->>P: Complete results identify accepted and failed work
             P->>S: Save acknowledgement and scoped outcomes together
-            Note over P,R: Member rejection selects that member's submitted rows; contract rejection selects that contract's rows
+            Note over P,R: Member rejection selects that member's submitted rows. contract rejection selects that contract's rows
         else Known permanent request rejection or HARD service stop
             E-->>P: Confirmed rejection
             P->>S: Save failure and stop remaining requests
@@ -244,7 +244,7 @@ sequenceDiagram
             P->>S: Save uncertain or retryable outcome
             alt Automatic replay is included, agreed safe, and attempts remain
                 P->>P: Wait before the next permitted attempt
-                Note over P,E: Next attempt uses the same saved body and key; remain on this request until its outcome is resolved
+                Note over P,E: Next attempt uses the same saved body and key. remain on this request until its outcome is resolved
             else Replay is unsafe or retry limit is reached
                 P->>S: Pause run for reconciliation
                 P->>R: Write internal hold report
@@ -270,7 +270,7 @@ sequenceDiagram
     else Result-file write failure
         R-->>P: Output is not ready
         P->>S: Keep recoverable finalization state
-        Note over P,R: Retry result publication after repair; do not repeat acknowledged consent POSTs
+        Note over P,R: Retry result publication after repair. do not repeat acknowledged consent POSTs
     end
 ```
 
