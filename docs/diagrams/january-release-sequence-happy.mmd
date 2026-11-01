@@ -1,0 +1,34 @@
+sequenceDiagram
+    autonumber
+    participant P as FileProcessor
+    participant F as File adapter
+    participant L as Group and member clients
+    participant S as ProcessingStore
+    participant C as Consent service
+    Note over P,C: Happy path only: valid file, complete lookups, accepted requests and successful result publication
+    P->>F: Read finished CSV and validate its layout
+    F-->>P: Original records and source record numbers
+    P->>S: Save run settings and original records
+    loop Each member row that requests a consent change
+        P->>L: Resolve external group ID through dncgrp
+        L-->>P: Internal group number and customer ID
+        P->>S: Save group context for this run and group
+        Note over L,S: Reuse saved group context for later rows in the same group
+        P->>L: Resolve member through dmqmbr using member-only payload plus group context
+        L-->>P: Internal contract, PIN and member GUID
+        P->>S: Save completed member lookup and source references
+    end
+    P->>P: ContractAssembler gathers members, consents and coverages
+    P->>P: Select configured PayloadBuilder and enforce request limits
+    Note over P,S: Start with one contract per body; the limited multi-contract option remains a scope decision
+    P->>S: Save all prepared JSON bodies, request keys and source references
+    loop Each saved request in order
+        P->>S: Record send attempt before calling the service
+        P->>C: POST saved JSON with agreed request key
+        C-->>P: Confirm processing completed and all submitted members accepted
+        P->>S: Save acknowledgement
+    end
+    P->>P: ResultWriter writes IT completion report and configured customer results
+    Note over P,S: Failed-record-only customer output has no rows on this happy path
+    P->>P: Publish ready manifests and archive the original file
+    P->>S: Mark run completed

@@ -1,0 +1,107 @@
+sequenceDiagram
+    autonumber
+    participant P as FileProcessor
+    participant A as PreparationService
+    participant S as ProcessingStore
+    participant E as Group, member and consent services
+    participant R as ResultWriter
+    P->>S: Save run and available original records
+    P->>A: Read and validate the complete input
+    break HARD file or parsing failure
+        A-->>P: File cannot proceed
+        P->>S: Save HARD findings and failed-file status
+        P->>R: Write IT report and eligible original-record return
+        Note over P,R: No consent POST; incomplete parsed input is not published as a complete customer return
+    end
+    loop Each contract being prepared
+        P->>A: Validate and resolve its member rows
+        A->>S: Look for saved group context for this run
+        S-->>A: Saved context or no previous resolution
+        opt Group context is not already saved
+            A->>E: dncgrp lookup with external group ID only
+            E-->>A: Complete group context or lookup failure
+        end
+        alt Group resolution failed or incomplete
+            Note over A,E: Do not call the member service for this failed lookup
+        else Group context available
+            A->>S: Save newly resolved internal group number and customer ID
+            A->>E: dmqmbr lookup with member-only payload plus group context
+            E-->>A: Member identity or lookup failure
+        end
+        alt HARD lookup or contract policy
+            A-->>P: File-level failure
+            P->>S: Save HARD findings
+            P->>R: Write failure results
+            break Stop this file before delivery
+                Note over P,E: No consent POST for this file
+            end
+        else MEDIUM contract rejection, if this boundary is selected
+            A-->>P: Reject this complete contract
+            P->>S: Save findings and all affected original row references
+            Note over P,S: Continue preparing the other contracts
+        else MEDIUM member rejection, if selected and reliably identified
+            A-->>P: Reject only the identified member
+            P->>S: Save that member's affected original row references
+            Note over P,S: Retain other members only under the agreed partial-contract rules
+        else SOFT warning, if included in January scope
+            A-->>P: Contract remains eligible, with warning
+            P->>S: Save warning without rejecting the contract
+        else Valid contract
+            A-->>P: Contract ready for JSON assembly
+        end
+    end
+    P->>A: Build one-contract requests from eligible data under the agreed error policy
+    A-->>P: JSON bodies within agreed limits; multi-contract arrays are optional scope
+    P->>S: Save all request bodies, stable keys and source references
+    Note over P,S: Any remaining HARD preparation error stops delivery; an empty eligible set produces no POST
+    loop Each saved request that is not already acknowledged
+        loop Attempt same request until acknowledged, rejected or paused
+        P->>S: Record attempt before POST
+        P->>E: Send saved JSON and agreed request key
+        alt All submitted members accepted
+            E-->>P: Confirmed completed success
+            P->>S: Save acknowledgement
+        else Confirmed member or contract rejection with usable IDs
+            E-->>P: Complete results identify accepted and failed work
+            P->>S: Save acknowledgement and scoped outcomes together
+            Note over P,R: Member rejection selects that member's submitted rows; contract rejection selects that contract's rows
+        else Known permanent request rejection or HARD service stop
+            E-->>P: Confirmed rejection
+            P->>S: Save failure and stop remaining requests
+            P->>R: Write failure results, excluding earlier accepted rows
+            break Stop further delivery
+                Note over P,E: Earlier acknowledgements cannot be rolled back
+            end
+        else Timeout, lost response or temporary transport failure
+            E-->>P: Request outcome is not confirmed
+            P->>S: Save uncertain or retryable outcome
+            alt Automatic replay is included, agreed safe, and attempts remain
+                P->>P: Wait before the next permitted attempt
+                Note over P,E: Next attempt uses the same saved body and key; remain on this request until its outcome is resolved
+            else Replay is unsafe or retry limit is reached
+                P->>S: Pause run for reconciliation
+                P->>R: Write internal hold report
+                break Await reconciliation
+                    Note over P,R: No final customer rejection is inferred from an uncertain send
+                end
+            end
+        else Incomplete response, unknown IDs or unrecognized result codes
+            E-->>P: Results cannot be matched reliably
+            P->>S: Preserve outcome and pause for reconciliation
+            P->>R: Write internal hold report
+            break Await a reliable decision
+                Note over P,R: Do not guess which member failed or resend acknowledged work
+            end
+        end
+        end
+    end
+    P->>S: Save finalizing status
+    P->>R: Publish customer and IT result files
+    alt Result files written successfully
+        R-->>P: Ready manifests point to completed files
+        P->>S: Mark completed or completed with rejections
+    else Result-file write failure
+        R-->>P: Output is not ready
+        P->>S: Keep recoverable finalization state
+        Note over P,R: Retry result publication after repair; do not repeat acknowledged consent POSTs
+    end

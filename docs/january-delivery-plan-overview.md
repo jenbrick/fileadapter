@@ -1,5 +1,8 @@
 # January Delivery Plan Overview
 
+See the [January release class and sequence diagrams](january-release-diagrams.md) for the proposed classes, happy path, and error paths; optional scope remains marked for discussion.
+
+
 **Goal:** deliver a small, complete file-to-consent flow that we can operate and support.
 
 Reference the POC for the proposed the architecture and reuse the parts that fit. Keep the release focused on the feeds needed at launch (if any) and the agreed service contracts (which we probably won't have). 

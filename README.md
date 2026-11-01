@@ -8,6 +8,8 @@ Java 17 · Spring Boot 3.5.16 · Gradle Wrapper 8.14.3 · Jackson · Apache Comm
 
 Start with the [January Delivery Plan Overview](docs/january-delivery-plan-overview.md) for the team discussion, then use the [January Delivery Plan Detailed](docs/january-delivery-plan-detailed.md) for scope, API decisions, acceptance and the four-week sequence. Both include Mermaid diagrams and distinguish the proposed initial release from the current POC.
 
+See the [January release class and sequence diagrams](docs/january-release-diagrams.md) for the proposed classes, happy path, and error paths; optional scope remains marked for discussion.
+
 ## Group lookup before member lookup
 
 The consent profiles now run **external group ID → group service → internal group number + customer ID → member demographics service → contract/PIN/member GUID → consent JSON**. `GroupEnricher` runs before `ConsentMemberEnricher`. The member service receives only the typed member payload plus resolved group context; consent preferences, payer/coverage data and the upsert JSON are excluded.
