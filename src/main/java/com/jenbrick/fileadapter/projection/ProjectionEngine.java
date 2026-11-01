@@ -245,7 +245,7 @@ public class ProjectionEngine {
             }
         }
     }
-    // Require consecutive list indexes so missing entries do not quietly change a template.
+    // Require consecutive list indexes so missing entries don't change a template.
     private JsonNode indexedList(JsonNode value) {
         if(value.isArray()) return value;
         if(!value.isObject()) throw new IllegalArgumentException("Expected a list");

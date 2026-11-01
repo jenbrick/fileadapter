@@ -9,13 +9,13 @@ sequenceDiagram
     P->>C: Validate, resolve group then member, build bounded requests
     alt HARD preparation failure
         C->>L: Record file-level finding and all parsed row references
-        Note over P,C: Stop file before POST; preserve original input
+        Note over P,C: Stop file before POST. preserve original input
     else MEDIUM contract failure
         Note over P,C: A failed group lookup never calls member service
         C->>L: Record finding for every row in that contract
         C-->>P: Requests for viable contracts only
     else SOFT warning
-        C->>L: Record warning; retain rows for delivery
+        C->>L: Record warning. retain rows for delivery
         C-->>P: Continue normal requests
     end
     opt LIVE acknowledged scoped response
@@ -24,7 +24,7 @@ sequenceDiagram
         alt Known member and approved code
             C->>L: Finding for that member's original rows only
         else Unknown identity, unmapped code or incomplete decision
-            C-->>P: Pause for reconciliation; infer no customer rejection
+            C-->>P: Pause for reconciliation. infer no customer rejection
         end
     end
     P->>R: Publish saved findings and run status
@@ -36,6 +36,6 @@ sequenceDiagram
     alt Complete source and publishable results
         R->>O: Atomic ready manifests naming revision files
     else PAUSED, incomplete parsing or result export error
-        R->>O: Internal diagnostic manifest; no customer-ready manifest
+        R->>O: Internal diagnostic manifest. no customer-ready manifest
     end
-    Note over R,O: Outside process sends customer files and emails IT; honor PREVIEW mode
+    Note over R,O: Outside process sends customer files and emails IT. honor PREVIEW mode

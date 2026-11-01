@@ -8,7 +8,7 @@ sequenceDiagram
     I->>P: process(input, profileId, consume)
     P->>P: Resolve profile, copy input, hash and save snapshot
     P->>L: create run (STAGING)
-    P->>M: Read CSV and save originals; normalize source names
+    P->>M: Read CSV and save originals. normalize source names
     M->>M: Resolve external group ID first
     M->>L: Freeze internal group number and customer ID per run/group
     M->>M: Member-only demographics lookup with group context
@@ -16,7 +16,7 @@ sequenceDiagram
     P->>M: project(rows, GROUPED projection)
     M->>M: Gather whole contracts and enforce row/member caps
     M-->>P: Single-contract objects or bounded contract arrays
-    P->>L: Stage each body with its source rows; status READY
+    P->>L: Stage each body with its source rows. status READY
     P->>L: status DELIVERING
     loop Each staged request
         P->>L: Mark request SENDING

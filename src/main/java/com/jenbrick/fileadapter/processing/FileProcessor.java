@@ -170,7 +170,7 @@ public class FileProcessor {
         if (run.status().equals("FINALIZING")) return finish(run, snapshot);
 
         if (run.status().equals("STAGING")) {
-            // An unfinished old lookup chain cannot be quietly switched to the new group-first
+            // An unfinished old lookup chain can't be unexpectedly switched to the new group-first
             // service contract.
             var chain=snapshot.profile().projection().enrichers();
             if(chain!=null && chain.contains("consent-member") && !chain.contains("group-context")) {
@@ -367,7 +367,7 @@ public class FileProcessor {
         log.warn("Run {} failed: {} at record {}", id, category, record);
     }
 
-    // Record the operational hold for IT, but do not infer which customer records failed.
+    // Record the operational hold, but don't infer which customer records failed.
     private void pause(String id, long record, String reason) throws IOException {
         report(id, "PAUSED", record, reason);
         ledger.status(id, "PAUSED", reason);

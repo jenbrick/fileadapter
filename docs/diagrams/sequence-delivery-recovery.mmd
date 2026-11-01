@@ -4,11 +4,11 @@ sequenceDiagram
     participant L as ProcessingLedger
     participant H as HttpUpsertClient
     participant S as Upsert endpoint
-    Note over P,L: Each request is one contract or a bounded array; acknowledged earlier requests are skipped
+    Note over P,L: Each request is one contract or a bounded array. acknowledged earlier requests are skipped
     alt Request already REJECTED
-        P->>P: fail(HTTP_REJECTED); stop
+        P->>P: fail(HTTP_REJECTED). stop
     else Prior attempt exists and replay-safe is false
-        P->>P: pause(); reconciliation required
+        P->>P: pause(). reconciliation required
     else Attempt permitted
         loop While retry budget remains and no terminal outcome
             P->>L: sending() persists SENDING and increments attempts
@@ -29,22 +29,22 @@ sequenceDiagram
             P->>L: Persist result and structured issues together
             alt ACKNOWLEDGED
                 P->>P: Correlate saved issues to request source rows
-                Note over P,L: Known member/contract rejection records findings; other members continue
-                Note over P,L: Unknown correlation pauses; HARD service stop fails remaining work
+                Note over P,L: Known member/contract rejection records findings. other members continue
+                Note over P,L: Unknown correlation pauses. HARD service stop fails remaining work
             else REJECTED
-                P->>P: fail(HTTP_REJECTED); stop run
+                P->>P: fail(HTTP_REJECTED). stop run
             else Replay disabled
-                P->>P: PAUSED; stop run
+                P->>P: PAUSED. stop run
             else More attempts available
                 P->>P: Exponential delay capped at 30 seconds
                 Note over P,H: Retry same complete contract batch and same idempotency key
             else Budget exhausted
-                P->>P: PAUSED; stop run
+                P->>P: PAUSED. stop run
             end
         end
     end
     opt Explicit resume of a PAUSED run
         P->>L: Load saved snapshot and requests
-        Note over P,L: Skip acknowledgements; no parsing or lookup for delivery-phase resume
-        Note over P,H: Manual resume adds a retry budget; replay-safe false still blocks prior attempts
+        Note over P,L: Skip acknowledgements.no parsing or lookup for delivery-phase resume
+        Note over P,H: Manual resume adds a retry budget. replay-safe false still blocks prior attempts
     end
