@@ -89,6 +89,8 @@ python scripts/verify-examples.py
 
 The flexible demo is the default Spring profile. Add a `FileFormatAdapter` for new physical syntax, a `RecordEnricher` for another lookup, or a `ValueTransform` for a new scalar conversion. A new delimiter or output shape is a configuration change.
 
+For Windows setup and copy/paste commands, see the [Git Bash run guide](docs/git-bash-run-guide.md).
+
 ## Build requirements
 
 Java must already be available through `JAVA_HOME` and `PATH` to launch Gradle. The build compiles and tests with JDK 17 and uses Foojay to provision that toolchain when missing. The first build needs approved network access. Set `JAVA_HOME` to the JDK installation root, not `bin`, and reopen Git Bash after changing Windows environment variables.
