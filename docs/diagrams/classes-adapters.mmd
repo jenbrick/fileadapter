@@ -1,0 +1,31 @@
+classDiagram
+    direction TB
+    class FileProcessor
+    class AdapterRegistry {
+        +require(format) FileFormatAdapter
+    }
+    class FileFormatAdapter {
+        <<interface>>
+        +format() Format
+        +read(file, layout, consumer)
+    }
+    class DelimitedFileAdapter
+    class FixedWidthFileAdapter
+    class XmlFileAdapter
+    class JsonFileAdapter
+    class SourceRecord {
+        +number() long
+        +payload() JsonNode
+    }
+    class SourceNormalizer {
+        +normalize(source, layout) SourceRecord
+    }
+    FileProcessor --> AdapterRegistry
+    FileProcessor --> SourceNormalizer
+    AdapterRegistry --> FileFormatAdapter : selects by format
+    FileFormatAdapter <|.. DelimitedFileAdapter
+    FileFormatAdapter <|.. FixedWidthFileAdapter
+    FileFormatAdapter <|.. XmlFileAdapter
+    FileFormatAdapter <|.. JsonFileAdapter
+    FileFormatAdapter ..> SourceRecord : emits via consumer
+    SourceNormalizer ..> SourceRecord : preserves record number

@@ -1,0 +1,76 @@
+sequenceDiagram
+    autonumber
+    participant I as CLI or DirectoryPoller
+    participant P as FileProcessor
+    participant M as Parsing and projection collaborators
+    participant L as Local stores
+    participant O as PreviewWriter or UpsertClient
+    Note over I,P: Poller first calls recover(); waits for ready marker and minimum age
+    I->>P: process(input, profileId, consume)
+    alt Invalid input or no unique matching profile
+        P-->>I: Throw intake exception
+        Note over I,P: Poller quarantines remaining input for IllegalArgumentException; CLI exits 1
+    else Intake accepted
+        P->>P: Copy, checksum, derive ID from content and snapshot
+        P->>L: Get run; create STAGING run if absent
+        opt Poller consumes source
+            P->>P: Delete ready marker, then incoming file
+        end
+        P->>P: execute(id, false)
+        alt COMPLETED or PREVIEWED
+            Note over P,O: Return success; recreate missing preview if needed
+        else FAILED or PAUSED
+            Note over P,L: FAILED returns false; PAUSED needs explicit resume
+        else FINALIZING
+            P->>P: finish() without parsing or sending
+        else STAGING, READY or DELIVERING
+            opt STAGING
+                P->>P: Verify staged checksum
+                P->>L: Clear partially staged requests
+                loop Each data record
+                    P->>M: read callback; normalize; enforce record limit
+                    M->>M: Validate input contract
+                    M->>L: Check saved enrichment by run and row
+                    alt Saved enriched row exists
+                        L-->>M: Reuse enriched payload
+                    else Not yet saved
+                        M->>M: Run configured enrichment and lookup
+                        M->>L: Save enriched payload
+                    end
+                end
+                P->>M: project all rows (FILE) or each row (RECORD)
+                alt Parse, lookup, mapping, conflict or validation failure
+                    M-->>P: Exception
+                    P->>P: fail(PREFLIGHT); report; move processing files to errors
+                    P->>L: FAILED
+                    Note over P,O: Stop this run; no upsert is sent
+                else Preparation succeeds
+                    M-->>P: Bodies and source provenance
+                    P->>L: Stage requests; READY
+                end
+            end
+            Note over P,O: Continue only if preparation succeeded
+            alt PREVIEW
+                P->>O: write(run, snapshot)
+                P->>L: FINALIZING
+                P->>P: Archive; mark PREVIEWED
+            else LIVE
+                P->>L: DELIVERING; read staged requests in order
+                loop Each request until failure or pause
+                    alt Already ACKNOWLEDGED
+                        Note over P,L: Skip this request
+                    else Pending or previously attempted
+                        P->>P: deliver(id, request, snapshot, manual)
+                        Note over P,O: See delivery and retry sequence below
+                        P->>O: Deliver saved body under replay policy
+                        O-->>P: Outcome
+                    end
+                end
+                opt Every request acknowledged or no requests generated
+                    P->>L: FINALIZING
+                    P->>P: Archive; mark COMPLETED
+                end
+            end
+        end
+    end
+    Note over P,L: Recovery selects STAGING, READY, DELIVERING, FINALIZING; infrastructure errors may leave these recoverable

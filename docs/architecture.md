@@ -1,5 +1,7 @@
 # Implemented architecture
 
+See the [runtime sequence and class diagrams](runtime-diagrams.md) and [CSV debugger walkthrough](csv-debug-walkthrough.md) for detailed execution.
+
 The [developer walkthrough](developer-walkthrough.md) is the primary team guide. [Flexible mappings](flexible-mappings.md) documents the new generic projection strategy and its latest-sample examples.
 
 ```mermaid

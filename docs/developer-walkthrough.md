@@ -1,5 +1,7 @@
 # FileAdapter: code walkthrough and change guide
 
+For a debugger-style execution trace, see [CSV receipt to consent POST](csv-debug-walkthrough.md), with [Mermaid sequence and class diagrams](runtime-diagrams.md).
+
 This is a Spring Boot / Gradle proof of concept for the adapter pattern and configurable file-to-JSON mapping. Consent is its worked example. File syntax, source names, enrichment, outgoing JSON structure and delivery are separate concerns.
 
 The only processing strategy is now the flexible projection engine. Start with [application-flexible-demo.yml](../src/main/resources/application-flexible-demo.yml), the [runnable input matrix](formats.md), and [projection vocabulary](flexible-mappings.md).

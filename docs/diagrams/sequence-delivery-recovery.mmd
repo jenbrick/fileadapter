@@ -1,0 +1,47 @@
+sequenceDiagram
+    autonumber
+    participant P as FileProcessor
+    participant L as ProcessingLedger
+    participant H as HttpUpsertClient
+    participant S as Upsert endpoint
+    alt Request already REJECTED
+        P->>P: fail(HTTP_REJECTED); stop
+    else Prior attempt exists and replay-safe is false
+        P->>P: pause(); reconciliation required
+    else Attempt permitted
+        loop While retry budget remains and no terminal outcome
+            P->>L: sending() persists SENDING and increments attempts
+            P->>H: post(saved JsonNode, runId:requestNumber, settings)
+            H->>S: POST application/json with configured headers
+            alt Configured success status (default 200, 201, 204)
+                S-->>H: Acknowledgement status
+                H-->>P: ACKNOWLEDGED
+            else HTTP 408, 429 or 500 and above
+                S-->>H: Retryable status
+                H-->>P: RETRYABLE
+            else Other 2xx or network ResourceAccessException
+                H-->>P: UNCERTAIN
+            else Other HTTP status
+                S-->>H: Rejection status
+                H-->>P: REJECTED
+            end
+            P->>L: result(outcome, httpStatus)
+            alt ACKNOWLEDGED
+                Note over P,L: Return success to delivery loop
+            else REJECTED
+                P->>P: fail(HTTP_REJECTED); stop run
+            else Replay disabled
+                P->>P: PAUSED; stop run
+            else More attempts available
+                P->>P: Exponential delay capped at 30 seconds
+                Note over P,H: Retry same saved JSON and same idempotency key
+            else Budget exhausted
+                P->>P: PAUSED; stop run
+            end
+        end
+    end
+    opt Explicit resume of a PAUSED run
+        P->>L: Load saved snapshot and requests
+        Note over P,L: Skip acknowledgements; no parsing or lookup for delivery-phase resume
+        Note over P,H: Manual resume adds a retry budget; replay-safe false still blocks prior attempts
+    end

@@ -1,0 +1,38 @@
+classDiagram
+    direction TB
+    class FileAdapterApplication {
+        +main(args)
+    }
+    class DirectoryPoller {
+        +poll()
+    }
+    class FileProcessor {
+        +process(input, profileId, consume) String
+        +resume(id) boolean
+        +recover()
+        -execute(id, manual) boolean
+        -deliver(id, request, snapshot, manual) boolean
+        -finish(run, snapshot) boolean
+    }
+    class ProfileCatalog {
+        +resolve(file, explicitId) Profile
+    }
+    class ProjectionEngine {
+        +enrich(runId, row, profile, mode) SourceRecord
+        +project(rows, projection) List
+    }
+    class ProcessingLedger
+    class PreviewWriter
+    class UpsertClient {
+        <<interface>>
+        +post(request, idempotencyKey, settings) DeliveryResult
+    }
+    class HttpUpsertClient
+    FileAdapterApplication ..> FileProcessor : starts or resumes
+    DirectoryPoller --> FileProcessor : polls and recovers
+    FileProcessor --> ProfileCatalog
+    FileProcessor --> ProjectionEngine
+    FileProcessor --> ProcessingLedger
+    FileProcessor --> PreviewWriter
+    FileProcessor --> UpsertClient
+    UpsertClient <|.. HttpUpsertClient

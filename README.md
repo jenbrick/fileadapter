@@ -76,6 +76,8 @@ FILE scope supports bounded aggregation, not arbitrary-volume streaming: the exa
 
 ## Documentation
 
+- [Runtime sequence and class diagrams](docs/runtime-diagrams.md): happy path, alternate paths, retries and extension interfaces.
+- [CSV debugger walkthrough](docs/csv-debug-walkthrough.md): breakpoints and data from receipt through consent delivery.
 - [Step-by-step code walkthrough and change guide](docs/developer-walkthrough.md): how to change layouts, delimiters, attributes, nesting and root arrays.
 - [Flexible mappings](docs/flexible-mappings.md): template syntax, grouping and enrichment.
 - [Runnable format matrix](docs/formats.md): all input examples and output variants.

@@ -1,0 +1,36 @@
+classDiagram
+    direction TB
+    class ProjectionEngine {
+        +validate(projection)
+        +enrich(runId, row, profile, mode) SourceRecord
+        +project(rows, projection) List
+        -render(node, rows, used, path) JsonNode
+    }
+    class Projection
+    class MappingValues {
+        +resolve(source, field) JsonNode
+    }
+    class TransformRegistry
+    class RequestValidator
+    class EnrichedRecordStore
+    class RecordEnricher {
+        <<interface>>
+        +name() String
+        +validate(profile)
+        +enrich(source, profile, mode) SourceRecord
+    }
+    class ConsentMemberEnricher
+    class MemberResolver {
+        <<interface>>
+        +resolve(criteria, settings) Resolution
+    }
+    class ConfiguredMemberResolver
+    ProjectionEngine ..> Projection : interprets template
+    ProjectionEngine --> MappingValues
+    ProjectionEngine --> RequestValidator
+    ProjectionEngine --> EnrichedRecordStore
+    ProjectionEngine --> RecordEnricher : selects by name
+    MappingValues --> TransformRegistry
+    RecordEnricher <|.. ConsentMemberEnricher
+    ConsentMemberEnricher --> MemberResolver
+    MemberResolver <|.. ConfiguredMemberResolver
