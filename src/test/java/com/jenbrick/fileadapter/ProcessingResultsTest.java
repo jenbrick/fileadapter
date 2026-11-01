@@ -28,13 +28,15 @@ class ProcessingResultsTest {
     @Autowired ObjectMapper json;
     // The bad member belongs to a contract with other rows. All of that contract is withheld, while
     // the other contracts continue.
+    // Git may check the expected CSV out with Windows line endings. Compare both kinds of
+    // newline the same way, while still checking every field, space and record.
     @Test void mediumWithholdsOnlyTheContractAndWritesOriginalRowsPlusCodeAndRemarks()throws Exception {
         String id=processor.process(Path.of("examples/flexible/contract-batches.csv"),"error-demo-medium-v1",false);
         assertThat(ledger.get(id).status()).isEqualTo("PREVIEWED_WITH_ERRORS");assertThat(ledger.count(id)).isEqualTo(1);
         var body=json.readTree(ledger.next(id,0).payload());assertThat(body).hasSize(2);
         assertThat(body.get(0).path("contractId").asText()).isEqualTo("222222222");
-        var manifest=manifest("customer",id);String actual=Files.readString(WORK.resolve("results/customer").resolve(id).resolve(manifest.path("customerFile").asText())).replace("\r\n","\n");
-        assertThat(actual).isEqualTo(Files.readString(Path.of("examples/flexible/expected-customer-medium.csv")));
+        var manifest=manifest("customer",id);String actual=Files.readString(WORK.resolve("results/customer").resolve(id).resolve(manifest.path("customerFile").asText()));
+        assertThat(actual).isEqualToNormalizingNewlines(Files.readString(Path.of("examples/flexible/expected-customer-medium.csv")));
         var report=report(id);assertThat(report.path("softCount").asInt()).isEqualTo(2);assertThat(report.path("mediumCount").asInt()).isGreaterThan(0);
         var before=Files.readString(WORK.resolve("results/internal").resolve(id).resolve("ready.json"));
         assertThat(processor.resume(id)).isTrue();
@@ -43,15 +45,15 @@ class ProcessingResultsTest {
     @Test void hardBlocksAllRequestsAndReturnsEveryParsedRecord()throws Exception {
         String id=processor.process(Path.of("examples/flexible/contract-batches.csv"),"error-demo-hard-v1",false);
         assertThat(ledger.get(id).status()).isEqualTo("FAILED");assertThat(ledger.count(id)).isZero();
-        var m=manifest("customer",id);String returned=Files.readString(WORK.resolve("results/customer").resolve(id).resolve(m.path("customerFile").asText())).replace("\r\n","\n");
-        assertThat(returned).isEqualTo(Files.readString(Path.of("examples/flexible/expected-customer-hard.csv")));
+        var m=manifest("customer",id);String returned=Files.readString(WORK.resolve("results/customer").resolve(id).resolve(m.path("customerFile").asText()));
+        assertThat(returned).isEqualToNormalizingNewlines(Files.readString(Path.of("examples/flexible/expected-customer-hard.csv")));
         assertThat(report(id).path("hardCount").asInt()).isGreaterThan(0);
     }
     @Test void softWarnsOnlyAndCanOptionallyAppearInCustomerResults()throws Exception {
         String id=processor.process(Path.of("examples/flexible/contract-batches.csv"),"error-demo-soft-v1",false);
         assertThat(ledger.get(id).status()).isEqualTo("PREVIEWED");assertThat(ledger.count(id)).isEqualTo(2);
-        var m=manifest("customer",id);String returned=Files.readString(WORK.resolve("results/customer").resolve(id).resolve(m.path("customerFile").asText())).replace("\r\n","\n");
-        assertThat(returned).isEqualTo(Files.readString(Path.of("examples/flexible/expected-customer-soft.csv")));
+        var m=manifest("customer",id);String returned=Files.readString(WORK.resolve("results/customer").resolve(id).resolve(m.path("customerFile").asText()));
+        assertThat(returned).isEqualToNormalizingNewlines(Files.readString(Path.of("examples/flexible/expected-customer-soft.csv")));
         assertThat(report(id).path("softCount").asInt()).isEqualTo(2);
     }
     @Test void enrichmentErrorRejectsOnlyThatContract()throws Exception {

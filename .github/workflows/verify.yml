@@ -7,7 +7,14 @@ permissions:
   contents: read
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -20,4 +27,4 @@ jobs:
         run: ./gradlew --no-daemon test bootJar
       # This also checks real YAML binding, previews, and customer/IT result files.
       - name: Compare every packaged example with expected JSON
-        run: python3 scripts/verify-examples.py
+        run: python scripts/verify-examples.py
