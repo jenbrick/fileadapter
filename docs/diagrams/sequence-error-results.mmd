@@ -1,0 +1,40 @@
+sequenceDiagram
+    autonumber
+    participant P as FileProcessor
+    participant C as Preparation and service result handlers
+    participant L as Ledger and ResultStore
+    participant R as ResultPublisher and source-format writer
+    participant O as Mounted outboxes
+    P->>L: Capture original rows before normalization
+    P->>C: Validate, enrich and build bounded requests
+    alt HARD preparation failure
+        C->>L: Record file-level finding and all parsed row references
+        Note over P,C: Stop file before POST; preserve original input
+    else MEDIUM contract failure
+        C->>L: Record finding for every row in that contract
+        C-->>P: Requests for viable contracts only
+    else SOFT warning
+        C->>L: Record warning; retain rows for delivery
+        C-->>P: Continue normal requests
+    end
+    opt LIVE acknowledged scoped response
+        P->>L: Persist acknowledgement plus structured service issues
+        P->>C: Correlate contract/member within request origins
+        alt Known member and approved code
+            C->>L: Finding for that member's original rows only
+        else Unknown identity, unmapped code or incomplete decision
+            C-->>P: Pause for reconciliation; infer no customer rejection
+        end
+    end
+    P->>R: Publish saved findings and run status
+    R->>L: Read original rows and all severity findings
+    R->>O: Write immutable internal JSON revision
+    opt Selected customer rows
+        R->>O: Original input format plus code and remarks fields
+    end
+    alt Complete source and publishable results
+        R->>O: Atomic ready manifests naming revision files
+    else PAUSED, incomplete parsing or result export error
+        R->>O: Internal diagnostic manifest; no customer-ready manifest
+    end
+    Note over R,O: Outside process sends customer files and emails IT; honor PREVIEW mode

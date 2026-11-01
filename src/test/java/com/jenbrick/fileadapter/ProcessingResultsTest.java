@@ -48,7 +48,7 @@ class ProcessingResultsTest {
         assertThat(returned).isEqualTo(Files.readString(Path.of("examples/flexible/expected-customer-soft.csv")));
         assertThat(report(id).path("softCount").asInt()).isEqualTo(2);
     }
-    @Test void groupedProjectionErrorRejectsOnlyThatContract()throws Exception {
+    @Test void enrichmentErrorRejectsOnlyThatContract()throws Exception {
         var rows=Files.readAllLines(Path.of("examples/flexible/contract-batches.csv"));
         rows.set(3,rows.get(3).replace("1980-01-01","INVALID-DOB"));
         Path path=WORK.resolve("lookup-errors.csv");Files.write(path,rows);
@@ -62,6 +62,15 @@ class ProcessingResultsTest {
         assertThat(ledger.get(id).status()).isEqualTo("FAILED");
         assertThat(Files.exists(WORK.resolve("results/customer").resolve(id).resolve("ready.json"))).isFalse();
         assertThat(report(id).path("completeSource").asBoolean()).isFalse();
+    }
+    @Test void projectionConflictCanRejectAContractWithoutFailingTheOtherContracts()throws Exception {
+        var rows=Files.readAllLines(Path.of("examples/flexible/contract-batches.csv"));
+        rows.set(4,rows.get(4).replace(",2026-09-15,GRANT,",",2026-09-15,RVOKE,"));
+        Path input=WORK.resolve("projection-conflict.csv");Files.write(input,rows);
+        String id=processor.process(input,"error-demo-service-v1",false);
+        assertThat(ledger.get(id).status()).isEqualTo("PREVIEWED_WITH_ERRORS");
+        assertThat(json.readTree(ledger.next(id,0).payload())).hasSize(2);
+        assertThat(report(id).path("mediumCount").asInt()).isEqualTo(1);
     }
     JsonNode manifest(String type,String id)throws Exception {return json.readTree(WORK.resolve("results").resolve(type).resolve(id).resolve("ready.json").toFile());}
     JsonNode report(String id)throws Exception {var m=manifest("internal",id);return json.readTree(WORK.resolve("results/internal").resolve(id).resolve(m.path("internalFile").asText()).toFile());}

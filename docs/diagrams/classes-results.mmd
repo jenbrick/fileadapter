@@ -1,0 +1,36 @@
+classDiagram
+    direction TB
+    class FileProcessor
+    class PreparationCoordinator {
+        +prepare(id, raw, profile, mode) List
+    }
+    class ResultStore {
+        +capture(id, source)
+        +identify(id, row, contractKey, contractId, memberGuid)
+        +add(id, finding)
+        +sources(id) List
+        +findings(id) List
+    }
+    class ResultPublisher {
+        +publish(run, snapshot)
+    }
+    class SourceResultWriter {
+        +write(path, layout, policy, rows)
+    }
+    class ServiceResultProcessor {
+        +apply(id, request, policy) boolean
+    }
+    class ScopedResponseReader {
+        +read(input) List
+    }
+    class HttpUpsertClient
+    class ProcessingLedger
+    FileProcessor --> PreparationCoordinator
+    FileProcessor --> ResultPublisher
+    FileProcessor --> ServiceResultProcessor
+    PreparationCoordinator --> ResultStore
+    ResultPublisher --> ResultStore
+    ResultPublisher --> SourceResultWriter
+    ServiceResultProcessor --> ResultStore
+    ServiceResultProcessor ..> ProcessingLedger : persisted request issues
+    HttpUpsertClient ..> ScopedResponseReader : opt-in protocol

@@ -2,13 +2,13 @@ sequenceDiagram
     autonumber
     participant I as CLI or DirectoryPoller
     participant P as FileProcessor
-    participant M as Adapters and ProjectionEngine
+    participant M as Adapters and PreparationCoordinator
     participant L as Local stores
     participant H as HttpUpsertClient and endpoint
     I->>P: process(input, profileId, consume)
     P->>P: Resolve profile, copy input, hash and save snapshot
     P->>L: create run (STAGING)
-    P->>M: read CSV, normalize and enrich each row
+    P->>M: Read CSV and save original rows; normalize and enrich
     M->>L: Save enriched rows
     P->>M: project(rows, GROUPED projection)
     M->>M: Gather whole contracts and enforce row/member caps
@@ -23,5 +23,6 @@ sequenceDiagram
     end
     P->>L: status FINALIZING
     P->>P: Archive input and snapshot
+    P->>P: Publish internal results and optional customer result file
     P->>L: status COMPLETED
     P-->>I: runId

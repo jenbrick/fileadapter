@@ -1,5 +1,14 @@
 # Verification notes
 
+## Original-record result update — November 1, 2026
+
+Added durable original-source capture, HARD/MEDIUM/SOFT rules and contract isolation, incoming-format customer result files, internal diagnostics/outbox manifests, and opt-in correlated member/contract service results. The example verifier now runs 20 packaged cases, including the hard/medium/soft customer CSV fixtures. The original 17 mapping/input fixtures remain unchanged.
+
+[GitHub Actions run 41322630031](https://github.com/jenbrick/fileadapter/actions/runs/41322630031) passed the full Gradle test/build and all 20 packaged examples for the initial result implementation. Additional tests cover namespaced XML, result-field collisions, contract projection failures, unmapped service codes and LIVE hard stops preserving earlier acknowledgements. The latest commit's verification workflow checks those refinements as well.
+
+Result tests use local HTTP servers and file-backed H2. They cover all 11 source layouts, approved customer text, complete-source versus partial-input handoff, row provenance, scoped member versus contract rejection, unknown response identities, persisted issue replay, and skipping acknowledged batches. Local Java syntax, YAML, script syntax, documentation links and embedded/source diagram consistency are also checked. Full local Gradle remains network-blocked; GitHub CI supplies the full build and runtime verification.
+
+
 ## Contract batching update — November 1, 2026
 
 Added GROUPED request partitioning, single-contract and bounded contract-array fixtures, explicit per-member payer-consent grouping, and JUnit coverage for complete-group limits, exact shapes and HTTP retry/resume. Both example runners now include 17 cases. The new GitHub verification workflow runs the full Gradle tests/build followed by the packaged example verifier on pushes to main and pull requests.

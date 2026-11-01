@@ -53,5 +53,24 @@ class CustomerResultFormatsTest {
             assertThat(row).isEqualTo(source.get(i).payload());
         }
     }
+    @org.junit.jupiter.api.Test void namespacedXmlAttributesRepeatedElementsAndNullsRoundTrip()throws Exception {
+        Path input=WORK.resolve("namespaced.xml");
+        Files.writeString(input,"<p:members xmlns:p='urn:members' xmlns:q='urn:other' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'><p:member id='7'><p:NAME>Alex</p:NAME><q:note q:flag='yes'>one</q:note><q:note>two</q:note><p:optional xsi:nil='true'/></p:member></p:members>");
+        var layout=new Profile.Layout(Profile.Format.XML,"UTF-8",null,null,null,null,null,
+                new Profile.Xml("/p:members/p:member",Map.of("p","urn:members")),null);
+        var source=new ArrayList<SourceRecord>();adapters.require(Profile.Format.XML).read(input,layout,source::add);
+        var row=source.get(0);Path output=WORK.resolve("namespaced-result.xml");
+        writer.write(output,layout,ErrorPolicy.defaults(),List.of(new SourceResultWriter.Row(new ResultStore.Source(1,json.writeValueAsString(row.payload()),null,null,null,null),"REVIEW","Please review.")));
+        var reread=new ArrayList<SourceRecord>();adapters.require(Profile.Format.XML).read(output,layout,reread::add);
+        var data=(com.fasterxml.jackson.databind.node.ObjectNode)reread.get(0).payload();
+        assertThat(data.remove("RESULT_CODE").asText()).isEqualTo("REVIEW");data.remove("RESULT_REMARKS");
+        assertThat(data).isEqualTo(row.payload());
+    }
+    @org.junit.jupiter.api.Test void sourceFieldCollisionCannotOverwriteOriginalData()throws Exception {
+        var layout=profiles.resolve(Path.of("flexible-object.json"),null).layout();
+        var row=new ResultStore.Source(1,"{\"RESULT_CODE\":\"original\",\"name\":\"Alex\"}",null,null,null,null);
+        assertThatThrownBy(()->writer.write(WORK.resolve("collision.json"),layout,ErrorPolicy.defaults(),
+                List.of(new SourceResultWriter.Row(row,"REVIEW","Review.")))).hasMessageContaining("collides");
+    }
     static Path temp(){try{return Files.createTempDirectory("customer-formats-");}catch(Exception e){throw new ExceptionInInitializerError(e);}}
 }

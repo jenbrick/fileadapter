@@ -73,7 +73,12 @@ public class FileProcessor {
         if (!Files.isRegularFile(input, LinkOption.NOFOLLOW_LINKS)) {
             throw new IllegalArgumentException("Input must be a regular file, not a symbolic link");
         }
-        var profile = profiles.resolve(input, profileId);
+        com.jenbrick.fileadapter.config.Profile profile;
+        try {profile=profiles.resolve(input,profileId);}
+        catch(IllegalArgumentException e) {
+            if(!consume)resultPublisher.intakeRejected(input.toAbsolutePath(),input.getFileName().toString(),e);
+            throw e;
+        }
         var snapshot = new RunSnapshot(4, profile, properties.mode(), properties.delivery());
         String config = json.writeValueAsString(snapshot);
         Files.createDirectories(work.resolve("processing"));

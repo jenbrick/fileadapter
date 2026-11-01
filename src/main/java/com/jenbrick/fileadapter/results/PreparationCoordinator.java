@@ -81,7 +81,13 @@ public class PreparationCoordinator {
             for(var group:groups.values()) try {
                 engine.project(group,single);accepted.addAll(group);
             } catch(RecordFailure e) {
-                var origins=group.stream().map(SourceRecord::number).toList();
+                var sourceKeys=new LinkedHashSet<String>();
+                for(var row:group) {
+                    String key=value(row.payload(),policy.contractKey());
+                    if(key==null)throw new RecordFailure("Missing source contract identity for isolation");
+                    sourceKeys.add(key);
+                }
+                var origins=results.sources(id).stream().filter(row->sourceKeys.contains(row.contractKey())).map(ResultStore.Source::number).toList();
                 results.add(id,new ResultStore.Finding("MEDIUM","CONTRACT","CONTRACT_FAILED","Contract could not be processed.",
                         e.getMessage(),origins,null));
             }

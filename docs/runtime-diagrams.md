@@ -11,13 +11,13 @@ sequenceDiagram
     autonumber
     participant I as CLI or DirectoryPoller
     participant P as FileProcessor
-    participant M as Adapters and ProjectionEngine
+    participant M as Adapters and PreparationCoordinator
     participant L as Local stores
     participant H as HttpUpsertClient and endpoint
     I->>P: process(input, profileId, consume)
     P->>P: Resolve profile, copy input, hash and save snapshot
     P->>L: create run (STAGING)
-    P->>M: read CSV, normalize and enrich each row
+    P->>M: Read CSV and save original rows; normalize and enrich
     M->>L: Save enriched rows
     P->>M: project(rows, GROUPED projection)
     M->>M: Gather whole contracts and enforce row/member caps
@@ -32,6 +32,7 @@ sequenceDiagram
     end
     P->>L: status FINALIZING
     P->>P: Archive input and snapshot
+    P->>P: Publish internal results and optional customer result file
     P->>L: status COMPLETED
     P-->>I: runId
 ```
@@ -71,7 +72,8 @@ sequenceDiagram
                 P->>P: Verify staged checksum
                 P->>L: Clear partially staged requests
                 loop Each data record
-                    P->>M: read callback; normalize; enforce record limit
+                    P->>M: Read original rows; enforce file limit; save originals
+                    M->>M: Normalize and evaluate configured severity rules
                     M->>M: Validate input contract
                     M->>L: Check saved enrichment by run and row
                     alt Saved enriched row exists
@@ -83,12 +85,13 @@ sequenceDiagram
                 end
                 P->>M: project using FILE, RECORD or GROUPED scope
                 M->>M: GROUPED gathers contracts, checks caps and partitions requests
-                alt Parse, lookup, limit, mapping, conflict or validation failure
+                alt HARD parse, lookup, limit, mapping or validation failure
                     M-->>P: Exception
                     P->>P: fail(PREFLIGHT); report; move processing files to errors
                     P->>L: FAILED
                     Note over P,O: Stop this run; no upsert is sent
-                else Preparation succeeds
+                else Preparation succeeds or MEDIUM isolates bad contracts
+                    Note over M,L: MEDIUM saves contract findings and removes rejected contract rows; SOFT retains rows
                     M-->>P: One contract or bounded contract arrays with source provenance
                     P->>L: Stage requests; READY
                 end
@@ -97,7 +100,7 @@ sequenceDiagram
             alt PREVIEW
                 P->>O: write(run, snapshot)
                 P->>L: FINALIZING
-                P->>P: Archive; mark PREVIEWED
+                P->>P: Archive and publish results; mark PREVIEWED or PREVIEWED_WITH_ERRORS
             else LIVE
                 P->>L: DELIVERING; read staged requests in order
                 loop Each request until failure or pause
@@ -112,11 +115,12 @@ sequenceDiagram
                 end
                 opt Every request acknowledged or no requests generated
                     P->>L: FINALIZING
-                    P->>P: Archive; mark COMPLETED
+                    P->>P: Archive and publish results; mark COMPLETED or COMPLETED_WITH_ERRORS
                 end
             end
         end
     end
+    Note over P,L: Customer output uses saved originals plus code/remarks; internal JSON keeps all findings
     Note over P,L: Recovery selects STAGING, READY, DELIVERING, FINALIZING; infrastructure errors may leave these recoverable
 ```
 
@@ -143,7 +147,7 @@ sequenceDiagram
             H->>S: POST application/json with configured headers
             alt Configured success status (default 200, 201, 204)
                 S-->>H: Acknowledgement status
-                H-->>P: ACKNOWLEDGED
+                H-->>P: ACKNOWLEDGED plus optional validated scoped issues
             else HTTP 408, 429 or 500 and above
                 S-->>H: Retryable status
                 H-->>P: RETRYABLE
@@ -153,9 +157,11 @@ sequenceDiagram
                 S-->>H: Rejection status
                 H-->>P: REJECTED
             end
-            P->>L: result(outcome, httpStatus)
+            P->>L: Persist result and structured issues together
             alt ACKNOWLEDGED
-                Note over P,L: Return success to delivery loop
+                P->>P: Correlate saved issues to request source rows
+                Note over P,L: Known member/contract rejection records findings; other members continue
+                Note over P,L: Unknown correlation pauses; HARD service stop fails remaining work
             else REJECTED
                 P->>P: fail(HTTP_REJECTED); stop run
             else Replay disabled
@@ -338,11 +344,101 @@ Editable source: [classes-batching.mmd](diagrams/classes-batching.mmd).
 
 `RequestBatcher` gathers nonadjacent groups and enforces indivisible group/member limits. It knows no consent JSON schema. `ProjectionEngine` renders each partition into the selected object/array template. The prepared bodies are staged independently and retried with their own keys. File preparation still completes before the first delivery.
 
+## Severity handling and result outboxes
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as FileProcessor
+    participant C as Preparation and service result handlers
+    participant L as Ledger and ResultStore
+    participant R as ResultPublisher and source-format writer
+    participant O as Mounted outboxes
+    P->>L: Capture original rows before normalization
+    P->>C: Validate, enrich and build bounded requests
+    alt HARD preparation failure
+        C->>L: Record file-level finding and all parsed row references
+        Note over P,C: Stop file before POST; preserve original input
+    else MEDIUM contract failure
+        C->>L: Record finding for every row in that contract
+        C-->>P: Requests for viable contracts only
+    else SOFT warning
+        C->>L: Record warning; retain rows for delivery
+        C-->>P: Continue normal requests
+    end
+    opt LIVE acknowledged scoped response
+        P->>L: Persist acknowledgement plus structured service issues
+        P->>C: Correlate contract/member within request origins
+        alt Known member and approved code
+            C->>L: Finding for that member's original rows only
+        else Unknown identity, unmapped code or incomplete decision
+            C-->>P: Pause for reconciliation; infer no customer rejection
+        end
+    end
+    P->>R: Publish saved findings and run status
+    R->>L: Read original rows and all severity findings
+    R->>O: Write immutable internal JSON revision
+    opt Selected customer rows
+        R->>O: Original input format plus code and remarks fields
+    end
+    alt Complete source and publishable results
+        R->>O: Atomic ready manifests naming revision files
+    else PAUSED, incomplete parsing or result export error
+        R->>O: Internal diagnostic manifest; no customer-ready manifest
+    end
+    Note over R,O: Outside process sends customer files and emails IT; honor PREVIEW mode
+```
+
+Editable source: [sequence-error-results.mmd](diagrams/sequence-error-results.mmd).
+
+## Class diagram: original-record results
+
+```mermaid
+classDiagram
+    direction TB
+    class FileProcessor
+    class PreparationCoordinator {
+        +prepare(id, raw, profile, mode) List
+    }
+    class ResultStore {
+        +capture(id, source)
+        +identify(id, row, contractKey, contractId, memberGuid)
+        +add(id, finding)
+        +sources(id) List
+        +findings(id) List
+    }
+    class ResultPublisher {
+        +publish(run, snapshot)
+    }
+    class SourceResultWriter {
+        +write(path, layout, policy, rows)
+    }
+    class ServiceResultProcessor {
+        +apply(id, request, policy) boolean
+    }
+    class ScopedResponseReader {
+        +read(input) List
+    }
+    class HttpUpsertClient
+    class ProcessingLedger
+    FileProcessor --> PreparationCoordinator
+    FileProcessor --> ResultPublisher
+    FileProcessor --> ServiceResultProcessor
+    PreparationCoordinator --> ResultStore
+    ResultPublisher --> ResultStore
+    ResultPublisher --> SourceResultWriter
+    ServiceResultProcessor --> ResultStore
+    ServiceResultProcessor ..> ProcessingLedger : persisted request issues
+    HttpUpsertClient ..> ScopedResponseReader : opt-in protocol
+```
+
+Editable source: [classes-results.mmd](diagrams/classes-results.mmd).
+
 ## How to read the alternate paths
 
 - Configuration validation happens during Spring startup, before file processing; invalid layouts, unknown enrichers and malformed templates can prevent startup.
 - A preflight exception ends preparation for that run. The diagram’s later PREVIEW/LIVE branches apply only after successful preparation.
-- HTTP outcome handling uses status codes. The client does not inspect individual consent results in a response body, so acknowledgement of a batch is not proof of per-consent atomicity.
-- Recovery automatically considers `STAGING`, `READY`, `DELIVERING` and `FINALIZING`. `PAUSED` needs explicit resume; `FAILED` is not resumed. Completed runs are reused for identical content and snapshot.
+- HTTP acknowledgement defaults to status codes. The opt-in SCOPED_V1 adapter validates complete member/contract results and correlates them to source records. Neither protocol implies per-consent atomicity. See [error handling](error-handling.md).
+- Recovery automatically considers `STAGING`, `READY`, `DELIVERING` and `FINALIZING`. `PAUSED` needs explicit resume; `FAILED` is not resumed. Completed runs, including terminal `_WITH_ERRORS` runs, are reused for identical content and snapshot. Saved source rows/findings support reproducible result-file regeneration.
 - PREVIEW can perform HTTP lookups if configured. The default fixture demo performs neither lookup HTTP nor delivery HTTP. LIVE refuses fixture member enrichment.
 - Local stores use file-backed H2. Snapshots preserve configuration, enriched rows and request JSON for repeatable recovery. A stable idempotency key requires an agreement with the receiving service to make replay safe.

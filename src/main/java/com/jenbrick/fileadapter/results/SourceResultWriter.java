@@ -53,6 +53,7 @@ public class SourceResultWriter {
     private void fixed(Writer out,Profile.Layout layout,ErrorPolicy p,List<Row> rows)throws IOException {
         int width=LayoutValidator.recordLength(layout.fixedWidth());
         for(var row:rows) {
+            record(row,p); // Reject result-field collisions without rebuilding original fixed-width bytes.
             String raw=row.source().rawText();
             if(raw==null || raw.codePointCount(0,raw.length())!=width) throw new IOException("Original fixed-width record unavailable");
             out.write(raw);out.write(pad(row.code(),p.codeWidth()));out.write(pad(row.remarks(),p.remarksWidth()));out.write("\n");

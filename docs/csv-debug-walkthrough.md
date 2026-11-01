@@ -146,7 +146,7 @@ Inspect `row.getRecordNumber()` and `data`. For record 2, this is an excerpt of 
 }
 ```
 
-All CSV cells start as strings, including empty strings and numeric-looking IDs. This object is source data, not the final consent JSON. The callback executes immediately for each row, so stepping into `consumer.accept()` returns you to the lambda inside `FileProcessor.execute()`.
+All CSV cells start as strings, including empty strings and numeric-looking IDs. This object is source data, not the final consent JSON. The callback executes immediately for each row, so stepping into `consumer.accept()` returns you to the lambda inside `FileProcessor.execute()`. It now saves the original source through `ResultStore.capture()` and collects the bounded input. After parsing completes, `PreparationCoordinator.prepare()` performs the normalization/enrichment steps below.
 
 ## 9. Normalize physical field names
 
@@ -154,7 +154,7 @@ All CSV cells start as strings, including empty strings and numeric-looking IDs.
 
 The stock CSV profile has no `layout.fields`, so this method returns the `SourceRecord` unchanged. For a feed with renamed headers, configured selectors and aliases create a new object with canonical logical field names. When fields are configured, only listed logical fields are retained; conflicting aliases are rejected. Record number is preserved.
 
-Back in the callback, inspect `currentRecord[0]`. The processor enforces increasing record numbers and the configured record limit before adding the enriched row to `projectionRows`.
+Back in the intake callback, inspect `currentRecord[0]` and `originalRows`. The processor enforces increasing record numbers and the configured record limit while saving original rows. In `PreparationCoordinator`, inspect the normalized/enriched rows and rejected contract keys.
 
 ## 10. Validate and enrich the row
 
@@ -196,7 +196,7 @@ The engine persists the enriched payload before returning it. Lookups are saved 
 
 **Breakpoint:** `FileProcessor.execute()` at `projections.project(...)`, then `ProjectionEngine.project()` and private `render()`.
 
-After all three callbacks complete, `projectionRows.size()` is 3. FILE scope renders one request using the complete bounded collection. RECORD scope would render each row separately and could not combine repeated rows into one coverage collection. GROUPED scope partitions complete contracts first, then renders each bounded partition (section 18).
+After all three callbacks and preparation steps complete, the original sample has three enriched rows. FILE scope renders one request using the complete bounded collection. RECORD scope would render each row separately and could not combine repeated rows into one coverage collection. GROUPED scope partitions complete contracts first, then renders each bounded partition (section 18).
 
 `template()` converts the configured root into the node model, normalizing Spring’s indexed-map representation of DSL lists. `render()` recursively handles:
 
@@ -379,3 +379,11 @@ All bodies are prepared/staged before delivery. At `deliver()`, the key’s requ
 | `FileProcessor.deliver` | Saved payload, attempts and replay policy |
 | `HttpUpsertClient.post` | URL, headers and returned outcome |
 | `FileProcessor.finish` | Archive and terminal run status |
+
+## 19. Trace customer returns and internal diagnostics
+
+Run `error-demo-medium-v1` against `examples/flexible/contract-batches.csv`. Break at `ResultStore.capture()` to see all 8 original records saved before field normalization. In `PreparationCoordinator.prepare()`, John's MEDIUM rule records the source contract key and withholds rows 1, 2, 4 and 7. Morgan's SOFT rule records warnings while preserving those rows for processing. The remaining two contracts produce one root-array request.
+
+Break at `ResultPublisher.publish()` after completion. It selects failed original rows, chooses one approved code/remarks pair per row and passes them to `SourceResultWriter`. Inspect the CSV printer: original headers/values first, followed by RESULT_CODE and RESULT_REMARKS. No member GUID, enrichment namespace or consent array is copied into this customer return. The internal JSON includes every finding and source/request reference, including Morgan’s warnings.
+
+For LIVE SCOPED_V1, break at `ScopedResponseReader.read()`, the extended `ProcessingLedger.result()` and `ServiceResultProcessor.apply()`. A member GUID identifies that member’s submitted original rows. Outcomes/issues are persisted before artifact creation; recovery replays saved findings even for an acknowledged request, with stable event deduplication. Unknown identities, missing completeness or unmapped codes pause instead of inventing a customer rejection. See [result handling](error-handling.md) for the exact response protocol and same-format behavior for all adapters.

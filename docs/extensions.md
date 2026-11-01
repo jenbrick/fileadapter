@@ -12,6 +12,8 @@ The current pipeline always uses configurable projections. Start with the [chang
 | New physical syntax | Implement `FileFormatAdapter`, add format/layout validation |
 | New read-only external lookup or multi-field computation | Implement named `RecordEnricher` |
 | New scalar conversion | Implement named `ValueTransform` |
+| Customer codes, remarks, severity rules or contract isolation | Configure profile `errors`; see [result handling](error-handling.md) |
+| Different incoming-format customer return syntax | Extend `SourceResultWriter` alongside the parser |
 | Different HTTP transport/acknowledgement | Implement `UpsertClient` or adjust delivery settings |
 
 ## Parser contract
@@ -35,3 +37,9 @@ Transformations run before blank handling. Optional blank dates/numbers need an 
 The engine supports nested objects/arrays, filtering and grouping within the selected file/record context. It does not execute scripts, arbitrary expressions or joins across unrelated files. FILE, RECORD and GROUPED are implemented request scopes. GROUPED uses `RequestBatcher` to gather complete groups, enforce row/member caps and pack a bounded number per request. A contract can include multiple member consents, separate payer-consent groups and nested coverage collections. Large-volume streaming and JSON byte-size limits remain separate features.
 
 Parser behavior, source normalization, enrichment and projection should each have focused tests. Include input and expected output fixtures when adding a feed or output shape, and run the packaged example verifier when changing their configuration.
+
+## Result and response extension points
+
+`ResultStore` preserves original records and deduplicated diagnostic events. `PreparationCoordinator` runs configured rules and contract isolation before final request batching. `SourceResultWriter` serializes source-format records with code/remarks; `ResultPublisher` writes revision files and handoff manifests. Neither sends email or customer messages.
+
+`HttpUpsertClient` can opt into the bounded `ScopedResponseReader` POC protocol. `ServiceResultProcessor` translates allowlisted codes and correlates contract/member identities only within a submitted request. Implement the eventual endpoint’s response adapter here rather than assuming array positions identify original rows. Preserve durable response/outcome storage before generating artifacts, idempotent event replay, and safe handling of incomplete/unknown results.

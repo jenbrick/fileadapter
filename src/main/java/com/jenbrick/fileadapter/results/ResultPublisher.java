@@ -78,7 +78,7 @@ public class ResultPublisher {
         if(diagnostic.has("customerExportError"))throw new IOException("Customer result export failed; inspect internal diagnostic");
     }
     public void intakeRejected(Path originalCopy,String filename,Exception error)throws IOException {
-        Path directory=internal.resolve(originalCopy.getParent().getFileName().toString());Files.createDirectories(directory);
+        Path directory=internal.resolve("intake-"+java.util.UUID.randomUUID());Files.createDirectories(directory);
         var report=json.createObjectNode().put("status","FAILED").put("severity","HARD").put("scope","FILE")
                 .put("code","INTAKE_REJECTED").put("inputFile",filename).put("originalCopy",originalCopy.toString())
                 .put("internalRemarks","Input rejected before profile selection ("+error.getClass().getSimpleName()+")")

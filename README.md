@@ -51,13 +51,23 @@ Or select `flexible-reshaped-v1` to produce `payload.entries`, move the manager 
 
 The [working YAML](src/main/resources/application-flexible-demo.yml) defines scalar source mappings, transforms, constants/nulls, nested objects, filtered/grouped arrays, required fields and request scope. It also includes a per-record name-mapping example without any consent enrichment.
 
+## Customer results and IT diagnostics
+
+The worker writes original source records plus `RESULT_CODE` and `RESULT_REMARKS` in the **incoming file format**. HARD validation rejects the file, MEDIUM rejects a contract, and SOFT warns without blocking. An opt-in service-response adapter can identify a rejected member and return only that member’s original rows. Customer remarks use approved text; detailed findings remain in a separate IT JSON report.
+
+```bash
+bash scripts/run-error-examples.sh
+```
+
+Default outboxes are `var-flexible-demo/results/customer/<run-id>/` and `var-flexible-demo/results/internal/<run-id>/`. Configure mounted LAN paths with `CUSTOMER_RESULTS_DIR` / `INTERNAL_RESULTS_DIR`; another process sends customer files and IT emails. Consume published `ready.json` manifests and honor PREVIEW/LIVE mode. See [error/result handling](docs/error-handling.md) for field widths, examples, response correlation and partial outcomes.
+
 ## Run every input format
 
 ```bash
 bash scripts/run-examples.sh
 ```
 
-Runnable examples cover CSV and pipe with/without headers, semicolon, tab, fixed width, XML, JSON array, JSON object and JSON Lines. The runner also exercises root-array, root-contract-ID, reshaped and per-record output variants. See the [format matrix](docs/formats.md) for filenames, profile IDs and expected results.
+Runnable examples cover CSV and pipe with/without headers, semicolon, tab, fixed width, XML, JSON array, JSON object and JSON Lines. The runner also exercises root-array, root-contract-ID, reshaped, per-record, bounded contract and severity/error-result variants. See the [format matrix](docs/formats.md) for filenames, profile IDs and expected results.
 
 With Python 3 available, compare all packaged outputs against expected JSON:
 
@@ -87,12 +97,13 @@ The worker validates and stages the bounded file before any upsert. `GROUPED` sc
 
 This POC uses one worker, persistent local work storage and a mounted LAN input directory. Polling requires a closed input file plus its `.ready` marker; one-shot input is copied. To poll a real share, configure the input path, profile patterns and `--ingestion.poll-enabled=true`. The demo's filename patterns are illustrative. The application does not mount SMB shares or manage share credentials.
 
-FILE scope supports bounded aggregation, not arbitrary-volume streaming: the example limit is 1,000 records, with a configurable maximum of 10,000. Contract batching bounds outgoing requests; it does not remove the in-memory file limit or enforce serialized byte-size limits. No batch atomicity, per-entry response handling, exactly-once transaction or distributed claiming is implied. Inputs, enrichment results, previews and archives can contain member data; use appropriate access and retention controls. Repository examples are synthetic.
+FILE scope supports bounded aggregation, not arbitrary-volume streaming: the example limit is 1,000 records, with a configurable maximum of 10,000. Contract batching bounds outgoing requests; it does not remove the in-memory file limit or enforce serialized byte-size limits. No batch atomicity, exactly-once transaction or distributed claiming is implied. Member/contract result handling uses an explicit opt-in demo response contract; it does not assume the actual service already supports it. Inputs, enrichment results, previews and archives can contain member data; use appropriate access and retention controls. Repository examples are synthetic.
 
 ## Documentation
 
 - [Runtime sequence and class diagrams](docs/runtime-diagrams.md): happy path, alternate paths, retries and extension interfaces.
 - [CSV debugger walkthrough](docs/csv-debug-walkthrough.md): breakpoints and data from receipt through consent delivery.
+- [Customer results and IT diagnostics](docs/error-handling.md): same-format original-record returns, severity handling and service results.
 - [Contract batching and two JSON shapes](docs/contract-batching.md): complete-contract limits, multiple members and payer consents.
 - [Step-by-step code walkthrough and change guide](docs/developer-walkthrough.md): how to change layouts, delimiters, attributes, nesting and root arrays.
 - [Flexible mappings](docs/flexible-mappings.md): template syntax, grouping and enrichment.

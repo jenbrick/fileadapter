@@ -73,4 +73,10 @@ This creates temporary work directories, runs the JAR for each case and compares
 | `flexible-contract-single-v1` | 3 contract objects, one per HTTP request | `expected-contract-single-requests.json` |
 | `flexible-contract-array-v1` | 2 root arrays, containing 2 then 1 contracts by default | `expected-contract-array-requests.json` |
 
-Each expected fixture contains the complete list of request bodies, unlike the older single-body fixtures. Run with `--ingestion.profile-id=<profile>` and `--ingestion.file=examples/flexible/contract-batches.csv`. See [limits and both shapes](contract-batching.md). Both runners now include 17 cases in total. Existing format examples continue to demonstrate the original shape and do not require the new payer-consent key.
+Each expected fixture contains the complete list of request bodies, unlike the older single-body fixtures. Run with `--ingestion.profile-id=<profile>` and `--ingestion.file=examples/flexible/contract-batches.csv`. See [limits and both shapes](contract-batching.md). Both runners include these 17 mapping/input cases, plus the 3 new severity/result cases below. Existing format examples continue to demonstrate the original shape and do not require the new payer-consent key.
+
+## Same-format customer error/result files
+
+All 11 input layouts have round-trip tests for the customer writer. It preserves original source values and appends `RESULT_CODE` / `RESULT_REMARKS`; headerless layouts stay headerless, fixed-width appends 16/160-character fields, XML uses new elements and JSON uses new properties. See [format details and limits](error-handling.md).
+
+`bash scripts/run-error-examples.sh` runs HARD, MEDIUM and SOFT CSV demos using `error-demo-hard-v1`, `error-demo-medium-v1` and `error-demo-soft-v1`. Expected returns are `expected-customer-hard.csv`, `expected-customer-medium.csv` and `expected-customer-soft.csv`. The Python verifier now runs **20 packaged cases** and compares these returns plus the IT manifests. The hard demo intentionally exits 1. A fourth `error-demo-service-v1` profile provides allowlisted result codes for opt-in LIVE member/contract response tests.

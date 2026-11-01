@@ -28,7 +28,8 @@ sequenceDiagram
                 P->>P: Verify staged checksum
                 P->>L: Clear partially staged requests
                 loop Each data record
-                    P->>M: read callback; normalize; enforce record limit
+                    P->>M: Read original rows; enforce file limit; save originals
+                    M->>M: Normalize and evaluate configured severity rules
                     M->>M: Validate input contract
                     M->>L: Check saved enrichment by run and row
                     alt Saved enriched row exists
@@ -40,12 +41,13 @@ sequenceDiagram
                 end
                 P->>M: project using FILE, RECORD or GROUPED scope
                 M->>M: GROUPED gathers contracts, checks caps and partitions requests
-                alt Parse, lookup, limit, mapping, conflict or validation failure
+                alt HARD parse, lookup, limit, mapping or validation failure
                     M-->>P: Exception
                     P->>P: fail(PREFLIGHT); report; move processing files to errors
                     P->>L: FAILED
                     Note over P,O: Stop this run; no upsert is sent
-                else Preparation succeeds
+                else Preparation succeeds or MEDIUM isolates bad contracts
+                    Note over M,L: MEDIUM saves contract findings and removes rejected contract rows; SOFT retains rows
                     M-->>P: One contract or bounded contract arrays with source provenance
                     P->>L: Stage requests; READY
                 end
@@ -54,7 +56,7 @@ sequenceDiagram
             alt PREVIEW
                 P->>O: write(run, snapshot)
                 P->>L: FINALIZING
-                P->>P: Archive; mark PREVIEWED
+                P->>P: Archive and publish results; mark PREVIEWED or PREVIEWED_WITH_ERRORS
             else LIVE
                 P->>L: DELIVERING; read staged requests in order
                 loop Each request until failure or pause
@@ -69,9 +71,10 @@ sequenceDiagram
                 end
                 opt Every request acknowledged or no requests generated
                     P->>L: FINALIZING
-                    P->>P: Archive; mark COMPLETED
+                    P->>P: Archive and publish results; mark COMPLETED or COMPLETED_WITH_ERRORS
                 end
             end
         end
     end
+    Note over P,L: Customer output uses saved originals plus code/remarks; internal JSON keeps all findings
     Note over P,L: Recovery selects STAGING, READY, DELIVERING, FINALIZING; infrastructure errors may leave these recoverable

@@ -252,3 +252,7 @@ The single-contract root reads `resolved.owner.contract` as `contractId` and ren
 The new payer collection additionally groups by `PAYER_CONSENT_KEY` within each member. The enricher forwards this optional source field to lookup; an HTTP facade must resolve the corresponding existing payer-consent GUID. The field is required by the new payer grouping, not by the legacy one-payer-consent-per-member profiles. It is not emitted automatically.
 
 `CONTRACTS_PER_REQUEST` (array demo only), `CONTRACT_MAX_ROWS` and `CONTRACT_MAX_MEMBERS` are environment-backed profile settings. These limits bound request composition, not JSON byte size. File preparation remains bounded and in memory; arbitrary-file streaming is not implemented.
+
+## Error policy and result format are independent of projection shape
+
+The profile’s `errors` settings control literal validation rules, HARD/MEDIUM/SOFT behavior, approved customer text and source identity paths. See [error/result handling](error-handling.md). MEDIUM projection handling prevalidates each GROUPED contract and then batches viable contracts; without an error policy, prior HARD behavior is preserved. The customer return writer uses saved **original source** records and layout, not the projected JSON, and appends code/remarks in that incoming format. The result store retains all findings and service-to-source correlation independently of output nesting.

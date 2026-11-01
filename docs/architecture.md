@@ -12,7 +12,8 @@ flowchart TD
     Snapshot --> Identity["Content plus snapshot run identity"]
     Copy --> Identity
     Identity --> Adapter["FileFormatAdapter registry"]
-    Adapter --> Normalize["Normalize physical fields and aliases"]
+    Adapter --> Raw["Persist original source values and fixed-width raw text"]
+    Raw --> Normalize["Normalize fields and evaluate severity rules"]
     Normalize --> Enrich["Named read-only RecordEnrichers"]
     Enrich --> Frozen["Persist enriched records in H2"]
     Frozen --> Batch["GROUPED: gather complete contracts; enforce row and member caps"]
@@ -31,9 +32,17 @@ flowchart TD
     Retry --> Send
     Outcome -->|Unsafe or exhausted| Pause["Pause with all contributing row numbers"]
     Outcome -->|Rejected| Error["Fail with value-free report"]
-    Validate -->|Invalid| Error
+    Validate -->|HARD invalid| Error
+    Validate -->|MEDIUM contract invalid| Exclude["Record contract findings and omit rejected contracts"]
+    Exclude --> Pack
+    Normalize -->|SOFT| Warn["Save warning and continue"]
+    Warn --> Enrich
     Ack --> Finish["Archive after all requests complete"]
     Preview --> Finish
+    Finish --> Results["Publish source-format customer returns plus code and remarks"]
+    Results --> IT["Publish comprehensive internal JSON and ready manifests"]
+    Error --> Results
+    Pause --> IT
     Ledger[("Local H2 ledger and enriched records")]
     Identity --> Ledger
     Frozen --> Ledger
@@ -58,4 +67,10 @@ The implementation is a bounded single-worker POC with local H2. FILE scope demo
 
 [Contract batching](contract-batching.md) adds generic `GROUPED` scope: `RequestBatcher` gathers complete groups from interleaved rows, enforces per-contract row/distinct-member limits and packs one or up to N contracts into each request. Single mode emits `{contractId, consents}`; array mode emits a root array of those objects. Members are identified in each consent owner, and a member can have separate keyed payer consents with multiple coverages each. These wrappers are POC alternatives pending the endpoint contract.
 
-Request partitioning happens before per-partition tree rendering. A later preparation error blocks all delivery. Source provenance is saved for each resulting request; acknowledged batches are skipped on resume while a failed batch retains its body and key. The file record/memory bound remains independent of the new outgoing-request bounds. Whole-file and per-record mappings remain available for comparison.
+Request partitioning happens before per-partition tree rendering. A later HARD preparation error blocks all delivery. Opt-in MEDIUM preparation handling isolates one contract before final batching; SOFT warnings continue. Source provenance is saved for each resulting request; acknowledged batches are skipped on resume while a failed batch retains its body and key. The file record/memory bound remains independent of the new outgoing-request bounds. Whole-file and per-record mappings remain available for comparison.
+
+## Original-record result outboxes
+
+The [result subsystem](error-handling.md) saves source records before normalization and preserves their source-format representation independently of consent JSON. HARD rejects a file, MEDIUM isolates contracts, and SOFT records nonblocking warnings. Opt-in scoped service responses can reject a member without rejecting its whole contract when identities are reliable.
+
+`ResultStore` persists originals, identity indexes and deduplicated events; `PreparationCoordinator` applies policy; `ServiceResultProcessor` correlates persisted response issues; `ResultPublisher` uses `SourceResultWriter` to append customer code/remarks in the incoming format. It writes separate internal JSON with all findings. Immutable revisions and ready manifests are the handoff to outside customer-delivery/email processes. Incomplete sources and uncertain service outcomes do not publish an automatic customer return.

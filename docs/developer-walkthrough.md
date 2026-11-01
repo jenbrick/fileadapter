@@ -381,3 +381,11 @@ The POC prepares a bounded collection in memory: 1,000 records in the example, w
 The original employee mappings, specialized consent request planner/store, old fixtures, old mock/generator scripts, consent-demo configuration and superseded PowerPoint have been removed. Markdown and the flexible examples are authoritative. Generic parser, validation, delivery and recovery functionality remains.
 
 Projection snapshots use engine version 4. Previously saved flexible snapshots remain readable; ignored obsolete configuration fields do not restore the removed processors. Engine versions 1–3 cannot be resumed by this version. Use the earlier Git revision to resolve those runs with their original behavior. Keep old work directories until any delivery status has been reconciled; do not automatically re-submit their source files in LIVE.
+
+## Error handling, original-record returns and service results
+
+`FileProcessor` now captures original `SourceRecord` values (and fixed-width raw text) through `ResultStore` before normalization. `PreparationCoordinator.prepare()` applies literal severity rules, performs enrichment, optionally isolates failed contracts, and returns the mapped requests. With no error policy, earlier HARD behavior remains. With MEDIUM handling, rejected contracts are removed before the remaining contracts are packed into requests.
+
+At delivery, `HttpUpsertClient` defaults to status acknowledgement. Opting into SCOPED_V1 validates a complete service result; `ProcessingLedger` persists its structured issues with acknowledgement before `ServiceResultProcessor` maps them to source rows. Member rejection does not imply contract rejection when the response reliably identifies the member.
+
+`ResultPublisher` produces internal diagnostics and customer records with code/remarks in the original input format through `SourceResultWriter`. These are outbox files for outside transmission/email. Partial runs end with `_WITH_ERRORS`; warnings alone do not block. See [the full result/error guide](error-handling.md) for configuration, filenames, examples and recovery limitations.

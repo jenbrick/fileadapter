@@ -5,7 +5,8 @@ flowchart TD
     Snapshot --> Identity["Content plus snapshot run identity"]
     Copy --> Identity
     Identity --> Adapter["FileFormatAdapter registry"]
-    Adapter --> Normalize["Normalize physical fields and aliases"]
+    Adapter --> Raw["Persist original source values and fixed-width raw text"]
+    Raw --> Normalize["Normalize fields and evaluate severity rules"]
     Normalize --> Enrich["Named read-only RecordEnrichers"]
     Enrich --> Frozen["Persist enriched records in H2"]
     Frozen --> Batch["GROUPED: gather complete contracts; enforce row and member caps"]
@@ -24,9 +25,17 @@ flowchart TD
     Retry --> Send
     Outcome -->|Unsafe or exhausted| Pause["Pause with all contributing row numbers"]
     Outcome -->|Rejected| Error["Fail with value-free report"]
-    Validate -->|Invalid| Error
+    Validate -->|HARD invalid| Error
+    Validate -->|MEDIUM contract invalid| Exclude["Record contract findings and omit rejected contracts"]
+    Exclude --> Pack
+    Normalize -->|SOFT| Warn["Save warning and continue"]
+    Warn --> Enrich
     Ack --> Finish["Archive after all requests complete"]
     Preview --> Finish
+    Finish --> Results["Publish source-format customer returns plus code and remarks"]
+    Results --> IT["Publish comprehensive internal JSON and ready manifests"]
+    Error --> Results
+    Pause --> IT
     Ledger[("Local H2 ledger and enriched records")]
     Identity --> Ledger
     Frozen --> Ledger
