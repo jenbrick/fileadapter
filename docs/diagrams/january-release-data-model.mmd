@@ -1,0 +1,34 @@
+classDiagram
+    direction TB
+    class ContractModel {
+        +internalContractId
+        +members
+    }
+    class MemberModel {
+        +pin
+        +contractMemberGuid
+        +consents
+        +sourceReferences
+    }
+    class ConsentModel {
+        +consentIdentity
+        +target
+        +status
+        +effectiveDates
+        +consentManager
+        +transactionDetails
+        +coverage
+    }
+    class CoverageModel {
+        +payerId
+        +policyId
+        +policyHolderDetails
+    }
+    class SourceRecordReference {
+        +runId
+        +recordNumber
+    }
+    ContractModel "1" *-- "1..*" MemberModel : members
+    MemberModel "1" *-- "0..*" ConsentModel : consent changes
+    ConsentModel "1" *-- "0..*" CoverageModel : payer coverage
+    MemberModel "1" --> "1..*" SourceRecordReference : original rows

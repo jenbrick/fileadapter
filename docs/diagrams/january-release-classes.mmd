@@ -1,0 +1,57 @@
+classDiagram
+    direction TB
+    class FileProcessor {
+        +processFile(file)
+        +resumeRun(runId)
+    }
+    class FileFormatAdapter {
+        <<interface>>
+        +read(file, layout) SourceRecords
+    }
+    class DelimitedFileAdapter
+    class PreparationService {
+        +prepare(originalRows, settings) PreparedRequests
+    }
+    class ProcessingStore {
+        <<interface>>
+        +saveOriginalRows(runId, rows)
+        +saveLookupResults(runId, results)
+        +saveRequest(runId, body, sourceRefs)
+        +saveOutcome(requestId, result)
+    }
+    class ConsentClient {
+        +send(savedBody, requestKey) ServiceResult
+    }
+    class ResultWriter {
+        +writeCustomerResults(originalRows, codes, remarks)
+        +writeInternalReport(findings)
+    }
+    class GroupClient {
+        +resolve(externalGroupId) GroupContext
+    }
+    class MemberClient {
+        +resolve(memberPayload) MemberIdentity
+    }
+    class ContractAssembler {
+        +assemble(enrichedRows) Contracts
+    }
+    class PayloadBuilder {
+        <<interface>>
+        +build(contracts, limits) RequestBodies
+    }
+    class SingleContractPayloadBuilder
+    class ContractArrayPayloadBuilder {
+        <<optional>>
+    }
+    FileProcessor --> FileFormatAdapter
+    FileProcessor --> PreparationService
+    FileProcessor --> ProcessingStore
+    FileProcessor --> ConsentClient
+    FileProcessor --> ResultWriter
+    FileFormatAdapter <|.. DelimitedFileAdapter
+    PreparationService --> GroupClient : dncgrp first
+    PreparationService --> MemberClient : dmqmbr with group context
+    PreparationService --> ContractAssembler
+    PreparationService --> PayloadBuilder : selected by configuration
+    PayloadBuilder <|.. SingleContractPayloadBuilder
+    PayloadBuilder <|.. ContractArrayPayloadBuilder

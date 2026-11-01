@@ -1,5 +1,8 @@
 # January Delivery Plan Detailed
 
+See the [January release class and sequence diagrams](january-release-diagrams.md) for the proposed classes, happy path, and error paths; optional scope remains marked for discussion.
+
+
 ## 1. Proposed boundaries
 
 
