@@ -1,12 +1,7 @@
 # January Delivery Plan Detailed
 
-**Build one complete, supportable flow first.** Use the [January Delivery Plan Overview](january-delivery-plan-overview.md) to present the scope, then use this document to divide the work and agree on acceptance criteria.
+## 1. Proposed boundaries
 
-This is a proposed first-release plan, not a claim that the POC is production-ready or that the company service contracts are already implemented. Four weeks assumes the team has access to those services, representative files, a test environment and prompt decisions on unresolved behavior. Confirm capacity and required launch feeds before committing to the schedule.
-
-## 1. Agree on the boundaries
-
-Keep these responsibilities separate:
 
 | Component | Owns | POC reference |
 | --- | --- | --- |
@@ -20,30 +15,31 @@ Keep these responsibilities separate:
 | Delivery | Request limits, HTTP handling, acknowledgement and safe retry | UpsertClient / HttpUpsertClient |
 | Results | Original-record customer returns and detailed IT diagnostics | ResultStore / SourceResultWriter / ResultPublisher |
 
-For output, use one internal model and two payload builders. Keep the business assembly separate from whether the HTTP body is a contract object or an array of contract objects. Configuration can select the agreed flavor. Adding or moving an output property should affect the payload builder, rather than the parser or lookup clients.
+Organize the contract, member, and consent data the same way inside the application. Then use two small pieces of code to create the JSON: one for sending a single contract and one for sending several contracts together. A setting determines which format to use.
 
-This recommendation simplifies the first production implementation. It does not require replacing the POC’s configurable projection engine before showing the architecture to the developers. Reuse that engine only if the team decides its extra flexibility is worth maintaining.
+If the receiving service needs a field added or moved, update the code that creates the JSON. The code that reads the files and calls the group and member services should stay the same.
+
 
 ## 2. First-release scope and acceptance
 
 | Capability | Initial scope | Acceptance check |
 | --- | --- | --- |
 | Intake | One worker and a finished-file protocol for the configured LAN folder | A file still being written is not processed. |
-| Formats | CSV and required delimiter variants; other formats only where required at launch | Read representative files, including quotes, blanks and malformed records. |
+| Formats | CSV only; other formats only when they become needed in a future release | Read representative files, including quotes, blanks and malformed records. |
 | Original records | Retain source values and source-record references before normalization | Customer returns contain the original fields, not enriched consent JSON. |
-| Group lookup | Adapt the existing company group service | Only external group ID is sent; incomplete context prevents member lookup. |
-| Member lookup | Adapt the company demographics service | The request contains only member demographics/identifiers and resolved group context. |
-| Contract assembly | Gather nonadjacent rows for a contract and its members | Repeated rows do not duplicate identical consents or coverages; conflicting values are detected. |
-| Payer data | Support the agreed consent identity and coverage collection rules | Multiple payer records are associated with the correct member and consent. |
-| JSON candidates | A single-contract object and a bounded array of contract objects | Reviewed examples match the candidate schemas; production enables an accepted contract. |
-| Limits | Configure contracts/request and agreed member, coverage or payload-size limits | Oversized work is handled explicitly; complete contracts are not silently split. |
-| Error scope | HARD file stop, MEDIUM contract rejection, SOFT warning | Other valid contracts continue when policy permits. |
-| Service results | Correlate confirmed contract/member failures using stable identities | A known failed member returns only that member’s submitted source rows. |
-| Result handoff | Separate customer and IT outboxes with completed-file/ready signaling | An outside sender can distinguish complete results, previews and incomplete/uncertain work. |
-| Persistence | Use approved persistent storage and an inspectable run/request status model | Restart does not resend acknowledged work or rebuild a different request for an uncertain attempt. |
-| Operations | Logs, basic counts, error locations and a short runbook | Support can find the run, affected records, submitted request and current disposition. |
+| Group lookup | Update to our existing company group service (dncgrp endpoint) | Only external group ID is sent; incomplete group context should prevent member lookup. |
+| Member lookup | Update to our demographics service (dmqmbr endpoint) | The request contains only member demographics/identifiers and resolved group context. |
+| Contract assembly | Bring together all records for a contract and its members, even when they appear in different parts of the file. | Repeated information does not create duplicate consents or payer coverage records. Conflicting information is flagged. |
+| Payer data | Support the agreed consent identity and coverage collection rules (see Tech Design Doc) | Multiple payer records are associated with the correct member and consent. |
+| JSON candidates | Discussion needed --> Support sending one contract at a time or several contracts together, up to a configured limit. ? | Reviewed examples against the dmqmbr upsert service endpoints - should match the candidate service json schema |
+| Limits per Service Call | Configure/Set limits on the number of contracts, members and payer coverage records, and the total amount of data sent in one call. | If a contract or group of contracts is too large, flag for handling rather than splitting its members or payer information across calls without an agreed rule. |
+| Error scope | HARD file stop, MEDIUM contract rejection, SOFT warning (if we have time to do SOFT warning) | Other valid contracts continue when rules permit. |
+| Service results | Use the contract number and member GUID returned by the service to match failures to the original file records. | When the service identifies a failed member, return only that member’s submitted records in the customer error file. |
+| Support and Troubleshooting | Write logs, show processing counts and error-file locations, and provide a short guide for support. | Support can find a processing run, see which records were affected and what was sent, and determine whether processing succeeded, failed or needs attention. |
 
-Use file-backed H2 for the local POC. Choose the company-approved storage for production with the deployment team. Keep the first implementation single-worker; shared/distributed claiming is separate work.
+The POC uses an H2 database saved on disk, so processing status survives a restart. For production, we may want to choose another form of storage. We may be okay with H2 for January and then opt for a database or other alternative later down the road.
+
+Start with one process handling files. If we later need several processes running at once, we’ll need a way to assign work so they don’t process the same files or contracts twice.
 
 Start with one complete contract per request. Implement the bounded array option through the same assembler and delivery path. A contract that exceeds the agreed limits needs explicit rejection or a separately agreed split protocol; do not silently omit members or payer data.
 
@@ -58,7 +54,7 @@ flowchart TD
     Member --> Assemble["Assemble contracts, members and consents"]
     Assemble --> Check{"Contract valid and within limits?"}
     Check -->|"MEDIUM rejection"| Reject["Withhold affected contract"]
-    Check -->|"Valid, including SOFT warnings"| Shape["Build one-contract or bounded-array JSON"]
+    Check -->|"Valid, including SOFT warnings (if time)"| Shape["Build one-contract or bounded-array JSON"]
     Shape --> Store["Save body, identities and source references"]
     Store --> Post["POST with agreed replay rules"]
     Post --> Outcome{"Service outcome"}
@@ -74,7 +70,7 @@ flowchart TD
     Results --> IT
 ```
 
-The diagram focuses on boundaries rather than every exception. Group/member lookup errors follow the agreed file/contract policy, and a group failure prevents that member call. MEDIUM rejections accumulate while other contracts continue; publish the final customer return when the run’s outcomes are known. SOFT warnings remain visible in the IT report.
+The diagram focuses on boundaries rather than every exception. Group/member lookup errors follow the current services contracts, and a group failure prevents that member call. MEDIUM rejections accumulate while other contracts continue; publish the final customer return when the run’s outcomes are known. SOFT warnings remain visible in the IT report (if time).
 
 Persistence happens throughout intake and lookup as well as before POST. Save successful group context for the run and completed member resolutions where practical, then save the exact outgoing body before the network side effect. The POC shows these as separate checkpoints.
 
