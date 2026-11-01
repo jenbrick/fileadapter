@@ -23,6 +23,9 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import static org.assertj.core.api.Assertions.*;
 
+/**
+ * Use local HTTP services to check the exact delivered bodies, acknowledgements, and restart behavior.
+ */
 @SpringBootTest(properties={"ingestion.mode=LIVE","FLEXIBLE_LOOKUP_MODE=HTTP","GROUP_LOOKUP_MODE=HTTP",
         "ingestion.delivery.replay-safe=true","ingestion.delivery.max-attempts=1"})
 @ActiveProfiles("flexible-demo")
@@ -61,6 +64,8 @@ class FlexibleProjectionLiveTest {
         assertThat(ledger.get(id).status()).isEqualTo("COMPLETED");
         assertThat(BODIES.get(0).at("/consents/0/consentGuid").asText()).isEqualTo(providerGuid);
     }
+    // The first POST is not acknowledged. Resume must keep its body and key, and must not look up
+    // the member again.
     @Test void retryReusesTheWholeBatchAndAllSourceOriginsWithoutAnotherLookup()throws Exception{
         status=503;
         String id=processor.process(input("retry"),"flexible-json-v1",false);
@@ -123,6 +128,8 @@ class FlexibleProjectionLiveTest {
         assertThatThrownBy(()->processor.resume(id)).hasMessageContaining("projection snapshots only");
         assertThat(BODIES).isEmpty();
     }
+    // Keep recovery support for already staged bodies even when their old lookup settings are no
+    // longer used for new files.
     @Test void previouslySavedFlexibleSnapshotsRemainReadable()throws Exception {
         String id="e".repeat(64);
         var snapshot=JSON.valueToTree(new com.jenbrick.fileadapter.processing.RunSnapshot(4,
@@ -139,6 +146,8 @@ class FlexibleProjectionLiveTest {
         assertThat(processor.resume(id)).isTrue();
         assertThat(BODIES).hasSize(1);assertThat(LOOKUPS.get()).isZero();
     }
+    // One contract succeeds before the next pauses. Only the unacknowledged request should be sent
+    // again.
     @Test void contractResumeSkipsAcknowledgedContractsAndKeepsTheFailedBodyAndKey()throws Exception {
         failRequest=2;
         String id=processor.process(Path.of("examples/flexible/contract-batches.csv"),"flexible-contract-single-v1",false);
@@ -169,6 +178,8 @@ class FlexibleProjectionLiveTest {
         for(var row:rows)((ObjectNode)row).put("TEST_CASE",name);
         Path path=WORK.resolve(name+".json");JSON.writeValue(path.toFile(),rows);return path;
     }
+    // These localhost endpoints stand in for group lookup, member lookup and consent delivery; no
+    // company service is called.
     static HttpServer server(){try{
         var server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
         server.createContext("/groups",exchange->{

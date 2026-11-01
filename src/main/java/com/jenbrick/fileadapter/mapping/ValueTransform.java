@@ -2,7 +2,9 @@ package com.jenbrick.fileadapter.mapping;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
-/** Register a Spring bean to add a named, testable business conversion. */
+/**
+ * Add a named value conversion here when the built-in conversions are not enough.
+ */
 public interface ValueTransform {
     String name();
     JsonNode apply(JsonNode value);

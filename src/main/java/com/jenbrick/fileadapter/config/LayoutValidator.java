@@ -4,6 +4,10 @@ import java.nio.charset.Charset;
 import java.util.Comparator;
 import java.util.HashSet;
 
+/**
+ * Check the file layout before we try to read anything. A bad layout should fail at startup, not
+ * halfway through a file.
+ */
 public final class LayoutValidator {
     private LayoutValidator() {}
 
@@ -11,6 +15,7 @@ public final class LayoutValidator {
         if (layout == null || layout.format() == null) {
             throw new IllegalArgumentException("A layout and format are required");
         }
+        // Validate the encoding as part of the layout, before opening a customer file.
         Charset.forName(layout.charset());
         switch (layout.format()) {
             case DELIMITED -> {
@@ -35,6 +40,7 @@ public final class LayoutValidator {
                     throw new IllegalArgumentException("Fixed-width layout requires column ranges");
                 }
                 var names = new HashSet<String>();
+                // Sort the fixed-width ranges so we can catch overlapping fields. Gaps are allowed.
                 long previousEnd = 0;
                 for (var column : fixed.columns().stream()
                         .sorted(Comparator.comparingInt(Profile.FixedColumn::offset)).toList()) {
@@ -57,6 +63,7 @@ public final class LayoutValidator {
                 }
             }
         }
+        // These selectors rename source fields. They can also point into nested JSON or XML records.
         if (layout.fields() != null) layout.fields().forEach((name, field) -> {
             if (!name.matches("[A-Za-z_][A-Za-z0-9_-]*") || field.column() == null || field.column().isBlank()) {
                 throw new IllegalArgumentException("Logical fields require a name and source column");

@@ -4,20 +4,19 @@ import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+/**
+ * Save run and request status in H2 so we know what is prepared, what was sent, and what still
+ * needs attention.
+ */
 @Component
 public class ProcessingLedger {
     private final JdbcTemplate jdbc;
 
     public record Run(String id, String filename, String contentHash, String snapshot,
                       String status, String error) {}
-    public record Request(long number, String payload, String status, int attempts, long sourceRecord, String sourceRecords, String responseIssues) {
-        public Request(long number,String payload,String status,int attempts,long sourceRecord,String sourceRecords) {
-            this(number,payload,status,attempts,sourceRecord,sourceRecords,null);
-        }
-        public Request(long number,String payload,String status,int attempts,long sourceRecord) {
-            this(number,payload,status,attempts,sourceRecord,null);
-        }
-    }
+    // The request number is separate from the source rows that contributed to this body.
+    public record Request(long number, String payload, String status, int attempts, long sourceRecord,
+                          String sourceRecords, String responseIssues) {}
 
     public ProcessingLedger(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -36,6 +35,7 @@ public class ProcessingLedger {
                   PRIMARY KEY(run_id, record_number),
                   FOREIGN KEY(run_id) REFERENCES ingestion_run(id))
                 """);
+        // Keep the schema upgrades so existing work directories can still be opened.
         jdbc.execute("ALTER TABLE ingestion_request ADD COLUMN IF NOT EXISTS source_record BIGINT");
         jdbc.execute("ALTER TABLE ingestion_request ADD COLUMN IF NOT EXISTS source_records CLOB");
         jdbc.execute("ALTER TABLE ingestion_request ADD COLUMN IF NOT EXISTS response_issues CLOB");
@@ -53,6 +53,7 @@ public class ProcessingLedger {
         return rows.isEmpty() ? null : rows.get(0);
     }
 
+    // These phases can continue automatically. PAUSED and FAILED runs need explicit attention.
     public List<String> recoverable() {
         return jdbc.queryForList("""
                 SELECT id FROM ingestion_run WHERE status IN
@@ -78,20 +79,14 @@ public class ProcessingLedger {
         jdbc.update("DELETE FROM ingestion_request WHERE run_id=?", id);
     }
 
-    public void stage(String id, long record, String payload) {
-        stage(id, record, record, payload);
-    }
-
-    public void stage(String id, long record, long sourceRecord, String payload) {
-        stage(id,record,List.of(sourceRecord),payload);
-    }
-
+    // Store the whole body together with every source record that contributed to it.
     public void stage(String id,long record,List<Long> sourceRecords,String payload) {
         if(sourceRecords.isEmpty()) throw new IllegalArgumentException("Request needs source provenance");
         jdbc.update("INSERT INTO ingestion_request(run_id,record_number,payload,status,source_record,source_records) VALUES(?,?,?,?,?,?)",
                 id,record,payload,"PENDING",sourceRecords.get(0),sourceRecords.toString());
     }
 
+    // Read by request number so delivery and recovery follow the original order.
     public Request next(String id, long after) {
         var rows = jdbc.query("""
                 SELECT record_number,payload,status,attempts,COALESCE(source_record,record_number),source_records,response_issues FROM ingestion_request
@@ -104,6 +99,7 @@ public class ProcessingLedger {
         return jdbc.queryForObject("SELECT COUNT(*) FROM ingestion_request WHERE run_id=?", Long.class, id);
     }
 
+    // Record the attempt before POSTing. A crash after this point must be treated as a possible send.
     public void sending(String id, long record) {
         jdbc.update("""
                 UPDATE ingestion_request SET status='SENDING',attempts=attempts+1
@@ -111,13 +107,10 @@ public class ProcessingLedger {
                 """, id, record);
     }
 
+    // Keep acknowledgement and structured issues in the same database update.
     public void result(String id,long record,String status,Integer httpStatus,String issues) {
         jdbc.update("UPDATE ingestion_request SET status=?,http_status=?,response_issues=? WHERE run_id=? AND record_number=?",
                 status,httpStatus,issues,id,record);
     }
 
-    public void result(String id, long record, String status, Integer httpStatus) {
-        jdbc.update("UPDATE ingestion_request SET status=?,http_status=? WHERE run_id=? AND record_number=?",
-                status, httpStatus, id, record);
-    }
 }

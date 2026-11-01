@@ -5,7 +5,6 @@ import com.jenbrick.fileadapter.config.IngestionProperties;
 import com.jenbrick.fileadapter.config.ProfileCatalog;
 import com.jenbrick.fileadapter.delivery.UpsertClient;
 import com.jenbrick.fileadapter.source.AdapterRegistry;
-import com.jenbrick.fileadapter.source.SourceNormalizer;
 import com.jenbrick.fileadapter.source.RecordFailure;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.io.IOException;
@@ -25,14 +24,16 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
+/**
+ * Coordinate the run from intake through preparation, delivery, and result files. Each saved status
+ * tells us where to restart.
+ */
 @Service
 public class FileProcessor {
     private static final Logger log = LoggerFactory.getLogger(FileProcessor.class);
     private final IngestionProperties properties;
     private final ProfileCatalog profiles;
     private final AdapterRegistry adapters;
-    private final SourceNormalizer normalizer;
-    private final com.jenbrick.fileadapter.projection.ProjectionEngine projections;
     private final UpsertClient client;
     private final ProcessingLedger ledger;
     private final ObjectMapper json;
@@ -45,10 +46,9 @@ public class FileProcessor {
     private final com.jenbrick.fileadapter.results.ServiceResultProcessor serviceResults;
 
     public FileProcessor(IngestionProperties properties, ProfileCatalog profiles,
-                         AdapterRegistry adapters, SourceNormalizer normalizer,
+                         AdapterRegistry adapters,
                          UpsertClient client, ProcessingLedger ledger, ObjectMapper json,
                          MeterRegistry metrics, PreviewWriter previews,
-                         com.jenbrick.fileadapter.projection.ProjectionEngine projections,
                          com.jenbrick.fileadapter.results.ResultStore resultStore,
                          com.jenbrick.fileadapter.results.ResultPublisher resultPublisher,
                          com.jenbrick.fileadapter.results.PreparationCoordinator preparation,
@@ -57,8 +57,6 @@ public class FileProcessor {
         this.properties = properties;
         this.profiles = profiles;
         this.adapters = adapters;
-        this.normalizer = normalizer;
-        this.projections = projections;
         this.client = client;
         this.ledger = ledger;
         this.json = json;
@@ -68,17 +66,19 @@ public class FileProcessor {
         validateDelivery(properties.delivery());
     }
 
-    /** CLI inputs are copied; poller inputs are removed only after durable staging. */
+    /** Copy CLI input; remove polled input only after we have saved the local copy and run settings. */
     public synchronized String process(Path input, String profileId, boolean consume) throws IOException {
         if (!Files.isRegularFile(input, LinkOption.NOFOLLOW_LINKS)) {
             throw new IllegalArgumentException("Input must be a regular file, not a symbolic link");
         }
+        // Choose the feed instructions before creating a run. A bad match gets an intake diagnostic.
         com.jenbrick.fileadapter.config.Profile profile;
         try {profile=profiles.resolve(input,profileId);}
         catch(IllegalArgumentException e) {
             if(!consume)resultPublisher.intakeRejected(input.toAbsolutePath(),input.getFileName().toString(),e);
             throw e;
         }
+        // Save the selected settings with this run so later YAML edits do not change recovery behavior.
         var snapshot = new RunSnapshot(4, profile, properties.mode(), properties.delivery());
         String config = json.writeValueAsString(snapshot);
         Files.createDirectories(work.resolve("processing"));
@@ -86,11 +86,13 @@ public class FileProcessor {
         String id;
         try {
             Files.copy(input, temporary, StandardCopyOption.REPLACE_EXISTING);
+            // The run ID depends on file content and saved settings, rather than just its filename.
             String contentHash = hash(temporary);
             if (consume && !hash(input).equals(contentHash)) {
                 throw new IllegalStateException("Input changed after being marked ready");
             }
             id = hash((contentHash + "\n" + config).getBytes(StandardCharsets.UTF_8));
+            // Reuse an existing run when both the content and configuration match.
             if (ledger.get(id) == null) {
                 Path directory = work.resolve("processing").resolve(id);
                 Files.createDirectories(directory);
@@ -126,7 +128,7 @@ public class FileProcessor {
         }
     }
 
-    /** Recreate missing projection previews from saved bodies without parsing or POSTing. */
+    /** Rebuild a missing preview from saved bodies without rereading input or sending another POST. */
     @EventListener(ApplicationReadyEvent.class)
     public synchronized void refreshPreviews() {
         for (String id : ledger.previewedRuns()) {
@@ -149,6 +151,7 @@ public class FileProcessor {
         return json.treeToValue(tree, RunSnapshot.class);
     }
 
+    // All entry points come back here. The saved status decides which steps still need to run.
     private boolean execute(String id, boolean manual) throws IOException {
         var run = ledger.get(id);
         if (run == null) throw new IllegalArgumentException("Unknown run ID");
@@ -160,12 +163,15 @@ public class FileProcessor {
             publishResults(id);
             return true;
         }
+        // A failed run needs attention; do not automatically submit it again.
         if (run.status().equals("FAILED")) {publishResults(id);return false;}
         if (run.status().equals("PAUSED") && !manual) return false;
         RunSnapshot snapshot = readSnapshot(run.snapshot());
         if (run.status().equals("FINALIZING")) return finish(run, snapshot);
 
         if (run.status().equals("STAGING")) {
+            // An unfinished old lookup chain cannot be quietly switched to the new group-first
+            // service contract.
             var chain=snapshot.profile().projection().enrichers();
             if(chain!=null && chain.contains("consent-member") && !chain.contains("group-context")) {
                 pause(id,0,"Legacy STAGING member lookup snapshot requires the previous release or reconciled fresh intake");
@@ -179,7 +185,9 @@ public class FileProcessor {
                 if (!hash(input).equals(run.contentHash())) {
                     throw new IllegalStateException("Staged input checksum mismatch");
                 }
-                ledger.clearRequests(id); // STAGING never sends requests; safe after interruption.
+                // Preparation has not sent anything yet, so rebuilding its staged requests is safe
+                // after interruption.
+                ledger.clearRequests(id);
                 resultStore.reset(id);
                 adapters.require(snapshot.profile().layout().format()).read(input,
                         snapshot.profile().layout(), source -> {
@@ -189,22 +197,29 @@ public class FileProcessor {
                             currentRecord[0] = source.number();
                             if (originalRows.size() >= snapshot.profile().projection().maxRecords())
                                 throw new RecordFailure("Projection record limit exceeded");
+                            // Keep the original record before normalization or lookup adds internal
+                            // fields.
                             resultStore.capture(id,source);originalRows.add(source);
                         });
+                // Only mark the source complete after the adapter reaches the end successfully.
                 resultStore.complete(id);
                 if (currentRecord[0] == 0) throw new IllegalArgumentException("No data records");
+                // Preparation applies severity rules and builds the whole set of viable requests
+                // before delivery starts.
                 for (var request : preparation.prepare(id,originalRows,snapshot.profile(),snapshot.mode())) {
                     ledger.stage(id, ++requestNumber[0], request.sourceRecords(), json.writeValueAsString(request.body()));
                 }
                 ledger.status(id, "READY", null);
             } catch (Exception e) {
-                // Parser and conversion exceptions can contain raw source data; keep reports value-free.
+                // Parser and conversion exceptions can contain raw source data; keep reports
+                // value-free.
                 fail(id, "PREFLIGHT", currentRecord[0],
                         e instanceof RecordFailure ? e.getMessage() : e.getClass().getSimpleName());
                 return false;
             }
         }
 
+        // The preview contains the exact staged bodies, but nothing is posted to the upsert endpoint.
         if (snapshot.mode() == IngestionProperties.Mode.PREVIEW) {
             previews.write(run, snapshot);
             ledger.status(id, "FINALIZING", null);
@@ -216,6 +231,8 @@ public class FileProcessor {
         ProcessingLedger.Request request;
         while ((request = ledger.next(id, after)) != null) {
             after = request.number();
+            // An acknowledged request still needs its saved member/contract findings applied after
+            // a restart.
             if (request.status().equals("ACKNOWLEDGED")) {
                 if(!applyAcknowledgement(id,request,snapshot))return false;
                 continue;
@@ -233,17 +250,24 @@ public class FileProcessor {
             fail(id, "HTTP_REJECTED", request.number(), "Previously recorded permanent rejection");
             return false;
         }
+        // An earlier attempt may already have reached the service. Require reconciliation when
+        // replay is not agreed.
         if (request.attempts() > 0 && !settings.replaySafe()) {
             pause(id, request.number(), "Prior delivery needs service-side reconciliation before replay");
             return false;
         }
+        // An explicit resume grants another retry budget while keeping the saved body and
+        // idempotency key.
         int limit = manual ? request.attempts() + settings.maxAttempts() : settings.maxAttempts();
         int attempts = request.attempts();
         while (attempts < limit) {
-            ledger.sending(id, request.number()); // Persist BEFORE network side effect.
+            // Save the attempt before the network call so recovery knows a send may have happened.
+            ledger.sending(id, request.number());
             attempts++;
             var result = client.post(json.readTree(request.payload()),
                     id + ":" + request.number(), settings);
+            // Save the HTTP outcome and structured issues together before generating any customer
+            // result.
             ledger.result(id, request.number(), result.outcome().name(), result.httpStatus(),
                     json.writeValueAsString(result.issues()==null?java.util.List.of():result.issues()));
             metrics.counter("fileadapter.requests", "outcome", result.outcome().name()).increment();
@@ -259,6 +283,7 @@ public class FileProcessor {
             }
             if (attempts < limit) {
                 try {
+                    // Back off between retries, with a cap so the wait does not keep growing.
                     long delay = Math.min(30_000L, settings.retryDelay().toMillis()
                             * (1L << Math.min(attempts - 1, 10)));
                     Thread.sleep(delay);
@@ -273,6 +298,8 @@ public class FileProcessor {
         return false;
     }
 
+    // Translate only complete, known service results. Unknown correlation pauses rather than
+    // guessing a failed member.
     private boolean applyAcknowledgement(String id,ProcessingLedger.Request request,RunSnapshot snapshot)throws IOException {
         boolean hard;
         try {hard=serviceResults.apply(id,request,snapshot.profile().errors());}
@@ -309,15 +336,18 @@ public class FileProcessor {
             throw new IOException("Archived input missing; run remains recoverable");
         }
         String status = snapshot.mode() == IngestionProperties.Mode.PREVIEW ? "PREVIEWED" : "COMPLETED";
+        // Keep partial completion visible in the run status even when the remaining requests succeeded.
         if(resultStore.rejected(run.id()))status+="_WITH_ERRORS";
         resultPublisher.publish(new ProcessingLedger.Run(run.id(),run.filename(),run.contentHash(),run.snapshot(),status,null),snapshot);
         ledger.status(run.id(), status, null);
         metrics.counter("fileadapter.files", "status", status).increment();
-        log.info("Run {} {} ({} records)", run.id(), status, ledger.count(run.id()));
+        log.info("Run {} {} ({} requests)", run.id(), status, ledger.count(run.id()));
         return true;
     }
 
     private void fail(String id, String category, long record, String reason) throws IOException {
+        // A hard stop cannot undo earlier successes. Exclude acknowledged rows from the generic
+        // failed-record return.
         var acknowledged=new java.util.HashSet<Long>();
         long after=0;ProcessingLedger.Request delivered;
         while((delivered=ledger.next(id,after))!=null) {
@@ -337,6 +367,7 @@ public class FileProcessor {
         log.warn("Run {} failed: {} at record {}", id, category, record);
     }
 
+    // Record the operational hold for IT, but do not infer which customer records failed.
     private void pause(String id, long record, String reason) throws IOException {
         report(id, "PAUSED", record, reason);
         ledger.status(id, "PAUSED", reason);
@@ -352,6 +383,8 @@ public class FileProcessor {
         var report = json.createObjectNode();
         report.put("runId", id); report.put("category", category);
         report.put("recordNumber", record); report.put("reason", reason);
+        // A source row number and a request number can differ because one request may contain
+        // several members.
         if (category.equals("PREFLIGHT")) {
             report.put("sourceRecordNumber", record);
         } else {
@@ -367,6 +400,8 @@ public class FileProcessor {
         json.writerWithDefaultPrettyPrinter().writeValue(directory.resolve("error.json").toFile(), report);
     }
 
+    // When no profile can be selected, retain the original file and write an IT report without
+    // inventing customer records.
     public void rejectIntake(Path input, Exception error) throws IOException {
         Path target = work.resolve("errors/intake-" + java.util.UUID.randomUUID());
         Files.createDirectories(target);
@@ -410,6 +445,7 @@ public class FileProcessor {
         }
     }
 
+    // Publish the completed file in one rename where the filesystem supports it.
     static void atomicMove(Path source, Path target) throws IOException {
         Files.createDirectories(target.getParent());
         try {

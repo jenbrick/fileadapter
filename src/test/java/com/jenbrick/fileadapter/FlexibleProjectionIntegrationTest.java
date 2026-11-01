@@ -22,6 +22,9 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import static org.assertj.core.api.Assertions.*;
 
+/**
+ * Run real files through Spring and H2, then compare the saved JSON with the expected bodies.
+ */
 @SpringBootTest
 @ActiveProfiles("flexible-demo")
 @DirtiesContext
@@ -35,6 +38,7 @@ class FlexibleProjectionIntegrationTest {
     @Autowired ProjectionEngine engine;
 
     @ParameterizedTest @CsvSource({"csv,flexible-csv-v1","psv,flexible-pipe-v1","xml,flexible-xml-v1","json,flexible-json-v1","fw,flexible-fixed-v1","scsv,flexible-semicolon-v1","tsv,flexible-tab-v1","jsonl,flexible-json-lines-v1"})
+    // Equivalent source files should produce the same consent body regardless of their physical format.
     void allAdaptersReproduceTheUserSample(String extension,String profile)throws Exception{
         String file="flexible-consents."+extension;
         String id=processor.process(Path.of("examples/flexible",file),null,false);
@@ -56,6 +60,7 @@ class FlexibleProjectionIntegrationTest {
         assertThat(processor.process(Path.of("examples/flexible",file),null,false)).isEqualTo(id);
     }
     @ParameterizedTest @CsvSource({"flexible-root-array-v1,expected-root-array.json","flexible-reshaped-v1,expected-reshaped.json","flexible-contract-envelope-v1,expected-contract-envelope.json"})
+    // These variants use the same source rows and Java code; only the output template changes.
     void changingOnlyConfigurationChangesTheJsonShape(String profile,String expected)throws Exception{
         String id=processor.process(Path.of("examples/flexible/flexible-consents.csv"),profile,false);
         assertThat(ledger.get(id).status()).isEqualTo("PREVIEWED");
@@ -129,6 +134,8 @@ class FlexibleProjectionIntegrationTest {
         var unknown=json.treeToValue(config,Projection.class);
         assertThatThrownBy(()->engine.validate(unknown)).hasMessageContaining("enricher");
     }
+    // A saved enriched row should let recovery avoid another lookup, even if a fresh lookup would
+    // now fail.
     @Test void frozenEnrichmentIsReusedEvenIfTheOriginalRowCannotResolve()throws Exception{
         var profile=profiles.resolve(Path.of("flexible-consents.csv"),null);
         String id=processor.process(Path.of("examples/flexible/flexible-consents.csv"),profile.id(),false);
@@ -139,6 +146,7 @@ class FlexibleProjectionIntegrationTest {
     }
     @ParameterizedTest @CsvSource({"flexible-contract-single-v1,expected-contract-single-requests.json,3",
             "flexible-contract-array-v1,expected-contract-array-requests.json,2"})
+    // Check the complete list of staged bodies and their original source-row references.
     void completeContractsProduceBothBoundedShapes(String profile,String fixture,int count)throws Exception {
         String id=processor.process(Path.of("examples/flexible/contract-batches.csv"),profile,false);
         assertThat(ledger.get(id).status()).isEqualTo("PREVIEWED");

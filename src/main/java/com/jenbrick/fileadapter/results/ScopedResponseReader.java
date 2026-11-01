@@ -6,17 +6,24 @@ import com.jenbrick.fileadapter.delivery.UpsertClient.ServiceIssue;
 import java.io.*;
 import java.util.*;
 
-/** Opt-in POC response contract. It is not an assumption about the company's real endpoint. */
+/**
+ * Read the optional demo response contract. We need complete, identifiable results before treating
+ * a member as accepted or rejected.
+ */
 public final class ScopedResponseReader {
     private ScopedResponseReader() {}
     public static List<ServiceIssue> read(InputStream input)throws IOException {
         var mapper=new ObjectMapper();mapper.enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
         mapper.getFactory().setStreamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(16).maxStringLength(4096).build());
         try(var parser=mapper.getFactory().createParser(new LimitedInputStream(input,2_000_000))) {
+            // The service must explicitly say its decisions are complete before omitted errors can
+            // mean success.
             JsonNode root=mapper.readTree(parser);
             if(root==null || parser.nextToken()!=null || !root.path("complete").isBoolean() || !root.path("complete").booleanValue()
                     || !root.path("results").isArray() || root.path("results").size()>10_000)
                 throw new IOException("Incomplete scoped response");
+            // Read only the identifiers and result codes we understand; raw service remarks are not
+            // customer text.
             var issues=new ArrayList<ServiceIssue>();
             for(var item:root.path("results")) {
                 try {
@@ -38,6 +45,7 @@ public final class ScopedResponseReader {
     private static String required(JsonNode item,String field) {
         var value=item.get(field);if(value==null || !value.isTextual() || value.asText().isBlank())throw new IllegalArgumentException();return value.asText();
     }
+    // Cap the response bytes as well as JSON nesting and field sizes.
     private static class LimitedInputStream extends FilterInputStream {
         private int left;
         LimitedInputStream(InputStream in,int limit){super(in);left=limit;}

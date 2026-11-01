@@ -6,7 +6,10 @@ import java.util.Map;
 import javax.xml.XMLConstants;
 import javax.xml.namespace.QName;
 
-/** XML selectors use absolute element paths, not general XPath expressions. */
+/**
+ * Translate XML path and namespace names consistently so reading a file does not depend on its
+ * chosen prefixes.
+ */
 public final class XmlNames {
     private XmlNames() {}
 
@@ -14,6 +17,7 @@ public final class XmlNames {
         if (options == null || options.recordPath() == null || !options.recordPath().startsWith("/")) {
             throw new IllegalArgumentException("XML requires an absolute record-path");
         }
+        // Use namespace URIs to identify elements; the prefix in the incoming file can change.
         Map<String, String> namespaces = options.namespaces() == null ? Map.of() : options.namespaces();
         var uris = new java.util.HashSet<String>();
         namespaces.forEach((prefix, uri) -> {
@@ -49,6 +53,8 @@ public final class XmlNames {
                 }
             }
         }
+        // Keep the URI when no configured alias exists, so two namespaces cannot collapse into one
+        // field name.
         return "{" + name.getNamespaceURI() + "}" + name.getLocalPart();
     }
 }

@@ -8,10 +8,15 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.file.Path;
 import org.apache.commons.io.input.BOMInputStream;
 
+/**
+ * Read text with the configured encoding, handle a BOM, and reject bad characters or oversized
+ * lines instead of changing the data.
+ */
 final class TextInputs {
     private TextInputs() {}
 
     static BufferedReader open(Path file, String charset) throws IOException {
+        // Strip an optional BOM before decoding text with the configured character set.
         var input = BOMInputStream.builder().setPath(file).get();
         try {
             return new BufferedReader(new InputStreamReader(input, Charset.forName(charset).newDecoder()
@@ -34,6 +39,7 @@ final class TextInputs {
                 if (reader.read() != '\n') reader.reset();
                 return line.toString();
             }
+            // Bound line size while reading it, rather than allocating an arbitrarily large line first.
             if (line.length() >= limit) throw new RecordFailure("Input line exceeds maximum supported length");
             line.append((char) value);
         }

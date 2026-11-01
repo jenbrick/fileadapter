@@ -17,6 +17,10 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import static org.assertj.core.api.Assertions.*;
 
+/**
+ * Exercise service-reported member and contract failures without assuming that an HTTP success
+ * means every member succeeded.
+ */
 @SpringBootTest(properties={"ingestion.mode=LIVE","FLEXIBLE_LOOKUP_MODE=HTTP","GROUP_LOOKUP_MODE=HTTP",
         "ingestion.delivery.response-contract=SCOPED_V1","ingestion.delivery.replay-safe=true","ingestion.delivery.max-attempts=1"})
 @ActiveProfiles("flexible-demo")
@@ -36,6 +40,8 @@ class ScopedServiceResultsTest {
     @Autowired ProcessingLedger ledger;
     @BeforeEach void reset(){POSTS.set(0);LOOKUPS.set(0);scope="MEMBER";member="MEMBER-GUID-002";code="MEMBER_INVALID";failAt=0;hardAt=0;complete=true;}
     @AfterAll static void stop(){SERVER.stop(0);}
+    // The response identifies a member, so the other members in the same submitted contract remain
+    // accepted.
     @Test void memberRejectionReturnsOnlyThatMembersOriginalRows()throws Exception {
         String id=run("member");
         assertThat(ledger.get(id).status()).isEqualTo("COMPLETED_WITH_ERRORS");assertThat(POSTS.get()).isEqualTo(2);
@@ -60,6 +66,7 @@ class ScopedServiceResultsTest {
         assertThat(ledger.next(id,0).status()).isEqualTo("ACKNOWLEDGED");
         assertThat(processor.resume(id)).isFalse();assertThat(POSTS.get()).isEqualTo(1);
     }
+    // Reapply saved findings after resume without repeating lookup or duplicating the customer rows.
     @Test void acknowledgedPartialResultsSurviveResumeWithoutDuplicateFindingsOrLookup()throws Exception {
         failAt=2;String id=run("resume");assertThat(ledger.get(id).status()).isEqualTo("PAUSED");
         failAt=0;assertThat(processor.resume(id)).isTrue();assertThat(POSTS.get()).isEqualTo(3);assertThat(LOOKUPS.get()).isEqualTo(8);
@@ -69,6 +76,7 @@ class ScopedServiceResultsTest {
         code="UNKNOWN_CODE";String id=run("unknown-code");assertThat(ledger.get(id).status()).isEqualTo("PAUSED");
         assertThat(Files.exists(WORK.resolve("results/customer").resolve(id).resolve("ready.json"))).isFalse();
     }
+    // A later hard stop cannot roll back the earlier acknowledged batch.
     @Test void liveHardStopDoesNotReturnMembersWhoseEarlierBatchSucceeded()throws Exception {
         hardAt=2;String id=run("hard-service");assertThat(ledger.get(id).status()).isEqualTo("FAILED");
         assertThat(POSTS.get()).isEqualTo(2);assertThat(customer(id).lines().count()).isEqualTo(2);
@@ -76,7 +84,8 @@ class ScopedServiceResultsTest {
     }
     String run(String suffix)throws Exception {
         Path file=WORK.resolve("contract-"+suffix+".csv");Files.copy(Path.of("examples/flexible/contract-batches.csv"),file);
-        // Source contents participate in run identity; include a distinct harmless source user per test.
+        // Source contents participate in run identity; include a distinct harmless source user per
+        // test.
         Files.writeString(file,Files.readString(file).replace("my.user.name",suffix));
         return processor.process(file,"error-demo-service-v1",false);
     }
@@ -86,6 +95,7 @@ class ScopedServiceResultsTest {
     String customer(String id)throws Exception {
         var dir=WORK.resolve("results/customer").resolve(id);var m=JSON.readTree(dir.resolve("ready.json").toFile());return Files.readString(dir.resolve(m.path("customerFile").asText()));
     }
+    // The fake service can return member errors, contract errors, or an incomplete response on demand.
     static HttpServer server(){try{
         var server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
         server.createContext("/groups",exchange->{

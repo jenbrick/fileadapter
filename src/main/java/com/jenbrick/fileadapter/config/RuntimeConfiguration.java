@@ -14,10 +14,15 @@ import org.springframework.boot.jdbc.DataSourceBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * Set up the shared JSON mapper, local database, and work-directory lock used by this worker.
+ */
 @Configuration
 public class RuntimeConfiguration {
     @Bean
     public ObjectMapper objectMapper() {
+        // Keep saved configuration ordering consistent so the same content and settings produce the
+        // same run ID.
         return JsonMapper.builder().findAndAddModules()
                 .enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
                 .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS).build();
@@ -30,6 +35,8 @@ public class RuntimeConfiguration {
 
     @Bean
     public DataSource dataSource(IngestionProperties properties, WorkDirectoryLock lock) {
+        // The lock dependency makes Spring acquire the work-directory lock before opening H2.
+        // Use file-backed H2 under the work directory so state survives a restart.
         String path = properties.workDirectory().toAbsolutePath().normalize().resolve("state/ledger").toString();
         return DataSourceBuilder.create().driverClassName("org.h2.Driver")
                 .url("jdbc:h2:file:" + path + ";DB_CLOSE_ON_EXIT=FALSE;WRITE_DELAY=0")
@@ -48,6 +55,7 @@ public class RuntimeConfiguration {
                     StandardOpenOption.CREATE, StandardOpenOption.WRITE);
             FileLock acquired;
             try {
+                // This POC supports one worker per work directory. A second process must stop here.
                 acquired = channel.tryLock();
                 if (acquired == null) throw new IllegalStateException("Work directory is already in use");
             } catch (Exception e) {

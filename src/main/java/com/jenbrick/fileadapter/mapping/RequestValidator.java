@@ -5,10 +5,15 @@ import com.jenbrick.fileadapter.config.Profile;
 import com.jenbrick.fileadapter.source.RecordFailure;
 import org.springframework.stereotype.Component;
 
-/** Small explicit contract; replace/extend with the real API's schema when provided. */
+/**
+ * Check the configured required fields and JSON types. This is a small set of checks, not a full
+ * API schema.
+ */
 @Component
 public class RequestValidator {
     public void validateFields(JsonNode request, java.util.List<Profile.ContractField> rules) {
+        // Only enforce checks that the profile declares; different JSON shapes can declare
+        // different checks.
         if (rules == null) return;
         for (var rule : rules) {
             JsonNode value = JsonPaths.get(request, rule.path());
@@ -16,6 +21,7 @@ public class RequestValidator {
                 if (rule.required()) fail(rule.path(), "is missing");
                 continue;
             }
+            // A field can be present and still be null, so required and nullable are separate rules.
             if (value.isNull()) {
                 if (!rule.nullable()) fail(rule.path(), "cannot be null");
                 continue;

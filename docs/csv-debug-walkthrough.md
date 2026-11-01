@@ -196,7 +196,7 @@ The engine persists the enriched payload before returning it. Group context is f
 
 ## 11. Finish reading and construct JSON
 
-**Breakpoint:** `FileProcessor.execute()` at `projections.project(...)`, then `ProjectionEngine.project()` and private `render()`.
+**Breakpoint:** `PreparationCoordinator.prepare()` at `engine.project(...)`, then `ProjectionEngine.project()` and private `render()`. FileProcessor delegates preparation to the coordinator.
 
 After all three callbacks and preparation steps complete, the original sample has three enriched rows. FILE scope renders one request using the complete bounded collection. RECORD scope would render each row separately and could not combine repeated rows into one coverage collection. GROUPED scope partitions complete contracts first, then renders each bounded partition (section 18).
 

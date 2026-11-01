@@ -17,9 +17,8 @@ classDiagram
     class ProfileCatalog {
         +resolve(file, explicitId) Profile
     }
-    class ProjectionEngine {
-        +enrich(runId, row, profile, mode) SourceRecord
-        +project(rows, projection) List
+    class PreparationCoordinator {
+        +prepare(id, raw, profile, mode) List
     }
     class ProcessingLedger
     class PreviewWriter
@@ -31,7 +30,7 @@ classDiagram
     FileAdapterApplication ..> FileProcessor : starts or resumes
     DirectoryPoller --> FileProcessor : polls and recovers
     FileProcessor --> ProfileCatalog
-    FileProcessor --> ProjectionEngine
+    FileProcessor --> PreparationCoordinator
     FileProcessor --> ProcessingLedger
     FileProcessor --> PreviewWriter
     FileProcessor --> UpsertClient

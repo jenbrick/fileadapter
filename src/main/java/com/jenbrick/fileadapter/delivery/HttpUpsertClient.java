@@ -12,6 +12,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
+/**
+ * Send the saved JSON body and translate the HTTP result into something the processor can act on.
+ */
 @Component
 public class HttpUpsertClient implements UpsertClient {
     private final RestClient.Builder builder;
@@ -26,6 +29,8 @@ public class HttpUpsertClient implements UpsertClient {
 
     @Override
     public DeliveryResult post(JsonNode request, String idempotencyKey, Delivery settings) {
+        // Reuse a client for each saved delivery configuration instead of rebuilding it for every
+        // request.
         var client = clients.computeIfAbsent(settings, config -> {
             var http = HttpClient.newBuilder().connectTimeout(config.connectTimeout())
                     .followRedirects(HttpClient.Redirect.NEVER).build();
@@ -36,6 +41,8 @@ public class HttpUpsertClient implements UpsertClient {
         var spec = client.post().uri(settings.endpoint()).contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.APPLICATION_JSON);
         if (!bearerToken.isBlank()) spec.headers(h -> h.setBearerAuth(bearerToken));
+        // Use the same key when retrying a saved request. The endpoint still has to honor that
+        // agreement.
         if (settings.idempotencyHeader() != null && !settings.idempotencyHeader().isBlank()) {
             spec.header(settings.idempotencyHeader(), idempotencyKey);
         }
@@ -44,6 +51,8 @@ public class HttpUpsertClient implements UpsertClient {
                 int status = response.getStatusCode().value();
                 // Do not persist response bodies: they may echo sensitive input values.
                 if (settings.successStatuses().contains(status)) {
+                    // Read member/contract outcomes only when this response protocol was explicitly
+                    // enabled.
                     if("SCOPED_V1".equals(settings.responseContract())) {
                         try {return new DeliveryResult(Outcome.ACKNOWLEDGED,status,
                                 com.jenbrick.fileadapter.results.ScopedResponseReader.read(response.getBody()));}
@@ -51,6 +60,8 @@ public class HttpUpsertClient implements UpsertClient {
                     }
                     return new DeliveryResult(Outcome.ACKNOWLEDGED, status);
                 }
+                // An unconfigured 2xx status is uncertain. It may mean accepted for later work
+                // rather than completed.
                 if (status >= 200 && status < 300) {
                     return new DeliveryResult(Outcome.UNCERTAIN, status);
                 }
@@ -59,6 +70,7 @@ public class HttpUpsertClient implements UpsertClient {
                 }
                 return new DeliveryResult(Outcome.REJECTED, status);
             });
+        // A lost connection does not tell us whether the service processed the request.
         } catch (ResourceAccessException e) {
             return new DeliveryResult(Outcome.UNCERTAIN, null);
         }

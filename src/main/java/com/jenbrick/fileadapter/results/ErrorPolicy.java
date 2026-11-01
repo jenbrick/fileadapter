@@ -4,13 +4,17 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
-/** Customer text is approved configuration, never an exception or arbitrary HTTP response text. */
+/**
+ * Configure which errors stop the file, which reject a contract, and which only warn. Customer
+ * remarks must be approved text.
+ */
 public record ErrorPolicy(String contractKey, Severity enrichmentSeverity, Severity projectionSeverity,
         @DefaultValue("RESULT_CODE") String codeField, @DefaultValue("RESULT_REMARKS") String remarksField,
         @DefaultValue("16") int codeWidth, @DefaultValue("160") int remarksWidth,
         boolean includeWarnings, boolean includeSuccess, List<Rule> rules, Map<String,ServiceCode> serviceCodes,
         @DefaultValue("resolved.owner.contract") String resolvedContractKey,
         @DefaultValue("resolved.owner.contractMemberGuid") String resolvedMemberKey) {
+    // HARD stops the file, MEDIUM isolates a contract, and SOFT records a warning.
     public enum Severity { HARD, MEDIUM, SOFT }
     public enum Scope { FILE, CONTRACT, MEMBER, RECORD }
     public enum Condition { MISSING, EQUALS }
@@ -28,6 +32,7 @@ public record ErrorPolicy(String contractKey, Severity enrichmentSeverity, Sever
         com.jenbrick.fileadapter.mapping.JsonPaths.check(resolvedContractKey);
         com.jenbrick.fileadapter.mapping.JsonPaths.check(resolvedMemberKey);
         if(contractKey!=null) com.jenbrick.fileadapter.mapping.JsonPaths.check(contractKey);
+        // A failed lookup or mapping cannot be treated as a warning and then used as valid data.
         if(enrichmentSeverity==Severity.SOFT || projectionSeverity==Severity.SOFT)
             throw new IllegalArgumentException("A failed enrichment or projection cannot be warning-only");
         if((enrichmentSeverity==Severity.MEDIUM || projectionSeverity==Severity.MEDIUM) && contractKey==null)
@@ -44,6 +49,7 @@ public record ErrorPolicy(String contractKey, Severity enrichmentSeverity, Sever
             checkText(value.customerCode(),value.customerRemarks());
         });
     }
+    // Validate customer text up front so output widths and code fields cannot silently truncate it.
     private void checkText(String code,String remarks) {
         if(code==null || !code.matches("[A-Z0-9_]+") || code.length()>codeWidth || remarks==null
                 || remarks.codePointCount(0,remarks.length())>remarksWidth || remarks.contains("\n") || remarks.contains("\r"))

@@ -6,7 +6,11 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 
-/** Settings for the optional member lookup; output rules belong to the projection. */
+/**
+ * Configure the member lookup and date handling. The output template decides the consent JSON
+ * structure.
+ */
+// These older fields can still be in saved snapshots, even though new member requests no longer use them.
 @com.fasterxml.jackson.annotation.JsonIgnoreProperties(value = {"preferences", "relationships", "sourceSystem", "sourceTransactionIdentifier", "providerTarget", "payerTarget"})
 public record ConsentSettings(String version, String datePattern,
         String sourceDateTime, Lookup lookup) {
@@ -15,9 +19,12 @@ public record ConsentSettings(String version, String datePattern,
                          Duration readTimeout, List<Fixture> fixtures) {}
     public record Fixture(Map<String, String> match, Resolution result) {}
     public record MemberIdentity(String contract, String pin, String contractMemberGuid) {}
+    // Owner and manager identities feed the mapping. Optional consent GUID fields remain for
+    // existing snapshots and adapters.
     public record Resolution(MemberIdentity owner, MemberIdentity manager,
                              String providerConsentGuid, String payerConsentGuid) {}
 
+    // Fail early if the date pattern, lookup mode or HTTP settings cannot be used.
     public void validate() {
         required(version);
         required(datePattern);

@@ -13,6 +13,10 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import static org.assertj.core.api.Assertions.*;
 
+/**
+ * Check which contracts continue and which original rows go back to the customer for hard, medium,
+ * and soft findings.
+ */
 @SpringBootTest
 @ActiveProfiles("flexible-demo")
 @DirtiesContext
@@ -22,6 +26,8 @@ class ProcessingResultsTest {
     @Autowired FileProcessor processor;
     @Autowired ProcessingLedger ledger;
     @Autowired ObjectMapper json;
+    // The bad member belongs to a contract with other rows. All of that contract is withheld, while
+    // the other contracts continue.
     @Test void mediumWithholdsOnlyTheContractAndWritesOriginalRowsPlusCodeAndRemarks()throws Exception {
         String id=processor.process(Path.of("examples/flexible/contract-batches.csv"),"error-demo-medium-v1",false);
         assertThat(ledger.get(id).status()).isEqualTo("PREVIEWED_WITH_ERRORS");assertThat(ledger.count(id)).isEqualTo(1);
@@ -56,6 +62,8 @@ class ProcessingResultsTest {
         assertThat(ledger.get(id).status()).isEqualTo("PREVIEWED_WITH_ERRORS");
         assertThat(json.readTree(ledger.next(id,0).payload())).hasSize(2);
     }
+    // The parser saw only a prefix of this file. Keep the diagnostics, but do not advertise that
+    // prefix as a complete return.
     @Test void malformedInputDoesNotPublishAnIncompleteCustomerReturnAsReady()throws Exception {
         Path path=WORK.resolve("malformed.csv");Files.writeString(path,"FIRST_NAME,LAST_NAME\nAlex,Example\nwrong,column,count\n");
         String id=processor.process(path,"flexible-csv-v1",false);
@@ -63,6 +71,8 @@ class ProcessingResultsTest {
         assertThat(Files.exists(WORK.resolve("results/customer").resolve(id).resolve("ready.json"))).isFalse();
         assertThat(report(id).path("completeSource").asBoolean()).isFalse();
     }
+    // Conflicting consent values are a contract-level failure when the profile explicitly chooses
+    // MEDIUM handling.
     @Test void projectionConflictCanRejectAContractWithoutFailingTheOtherContracts()throws Exception {
         var rows=Files.readAllLines(Path.of("examples/flexible/contract-batches.csv"));
         rows.set(4,rows.get(4).replace(",2026-09-15,GRANT,",",2026-09-15,RVOKE,"));

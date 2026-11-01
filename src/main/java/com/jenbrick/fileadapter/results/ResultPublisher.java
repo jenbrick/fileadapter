@@ -9,7 +9,10 @@ import java.util.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-/** Immutable revision files plus ready manifests. A downstream process owns transmission/email. */
+/**
+ * Write separate customer and IT result files, then publish ready manifests for the outside process
+ * that sends them.
+ */
 @Component
 public class ResultPublisher {
     private final ResultStore store;
@@ -29,12 +32,16 @@ public class ResultPublisher {
         var findings=store.findings(run.id());var sources=store.sources(run.id());
         var selected=new ArrayList<SourceResultWriter.Row>();
         for(var row:sources) {
+            // Return a source row once. The highest severity wins, with code ordering to make ties
+            // predictable.
             var matches=findings.stream().filter(f->f.sourceRecords().contains(row.number()) && (!f.severity().equals("SOFT") || policy.includeWarnings()))
                     .sorted(Comparator.comparingInt((ResultStore.Finding f)->rank(f.severity())).thenComparing(ResultStore.Finding::code)).toList();
             if(!matches.isEmpty()) {var f=matches.get(0);selected.add(new SourceResultWriter.Row(row,f.code(),f.customerRemarks()));}
             else if(policy.includeSuccess() && (run.status().startsWith("COMPLETED") || run.status().startsWith("PREVIEWED")))
                 selected.add(new SourceResultWriter.Row(row,"OK",snapshot.mode().name().equals("PREVIEW")?"Preview only; not delivered.":"Processed."));
         }
+        // IT gets every finding and the overall run state, including warnings that never go to the
+        // customer.
         var diagnostic=json.createObjectNode();diagnostic.put("runId",run.id());diagnostic.put("inputFile",run.filename());
         diagnostic.put("status",run.status());diagnostic.put("mode",snapshot.mode().name());diagnostic.put("completeSource",store.completeInput(run.id()));
         diagnostic.put("sourceRecordCount",sources.size());diagnostic.put("customerRecordCount",selected.size());
@@ -42,6 +49,7 @@ public class ResultPublisher {
         diagnostic.put("hardCount",findings.stream().filter(f->f.severity().equals("HARD")).count());
         diagnostic.put("mediumCount",findings.stream().filter(f->f.severity().equals("MEDIUM")).count());
         diagnostic.put("softCount",findings.stream().filter(f->f.severity().equals("SOFT")).count());
+        // Use a stable revision name so repeated publication of the same result can be recognized.
         String state=json.writeValueAsString(diagnostic);
         String revision;
         try {revision=HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(state.getBytes(StandardCharsets.UTF_8))).substring(0,16);}
@@ -54,6 +62,7 @@ public class ResultPublisher {
         String customerFile=null;
         if(!selected.isEmpty()) {
             customerFile=stem+".results."+revision+extension;
+            // Write the source-format customer file before pointing an outside process at it.
             Path pending=cdir.resolve(customerFile+".tmp");
             try {writer.write(pending,snapshot.profile().layout(),policy,selected);move(pending,cdir.resolve(customerFile));}
             catch(IOException|RuntimeException e) {
@@ -66,17 +75,21 @@ public class ResultPublisher {
                 customerFile=null;
             }
         }
+        // Do not publish a customer-ready result while input is incomplete or the run is paused.
         diagnostic.put("customerFile",customerFile);diagnostic.put("customerReady",customerFile!=null && store.completeInput(run.id()) && !run.status().equals("PAUSED"));
         String internalFile="diagnostics."+revision+".json";
         atomicJson(idir.resolve(internalFile),diagnostic);
         var manifest=json.createObjectNode().put("runId",run.id()).put("revision",revision).put("status",run.status()).put("mode",snapshot.mode().name())
                 .put("completeSource",store.completeInput(run.id())).put("internalFile",internalFile).put("customerFile",customerFile)
                 .put("customerReady",diagnostic.path("customerReady").asBoolean());
+        // The manifest is the handoff. Consumers should not pick up temporary or unfinished files.
         atomicJson(idir.resolve("ready.json"),manifest);
         if(manifest.path("customerReady").asBoolean())atomicJson(cdir.resolve("ready.json"),manifest);
         else Files.deleteIfExists(cdir.resolve("ready.json"));
         if(diagnostic.has("customerExportError"))throw new IOException("Customer result export failed; inspect internal diagnostic");
     }
+    // An unreadable or unmatched input still needs an IT report, even when no customer record can
+    // be built.
     public void intakeRejected(Path originalCopy,String filename,Exception error)throws IOException {
         Path directory=internal.resolve("intake-"+java.util.UUID.randomUUID());Files.createDirectories(directory);
         var report=json.createObjectNode().put("status","FAILED").put("severity","HARD").put("scope","FILE")

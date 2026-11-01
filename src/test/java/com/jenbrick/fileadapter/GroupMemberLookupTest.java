@@ -21,6 +21,10 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import static org.assertj.core.api.Assertions.*;
 
+/**
+ * Check that group lookup happens first and that member lookup receives only the approved member
+ * fields and group context.
+ */
 @SpringBootTest(properties={"ingestion.mode=LIVE","FLEXIBLE_LOOKUP_MODE=HTTP","GROUP_LOOKUP_MODE=HTTP",
         "ingestion.delivery.replay-safe=true","ingestion.delivery.max-attempts=1"})
 @ActiveProfiles("flexible-demo")
@@ -46,6 +50,7 @@ class GroupMemberLookupTest {
     @Autowired GroupEnricher groupEnricher;
     @BeforeEach void reset(){EVENTS.clear();GROUP_BODIES.clear();MEMBER_BODIES.clear();POSTS.set(0);groupStatus=200;memberStatus=200;upsertStatus=201;incompleteGroup=false;failedGroup=null;}
     @AfterAll static void stop(){SERVER.stop(0);}
+    // Check the actual HTTP field names, not just the Java payload type.
     @Test void groupIsResolvedFirstAndMemberRequestContainsOnlyTheAllowedMemberFields()throws Exception {
         String id=run("ordered");assertThat(ledger.get(id).status()).isEqualTo("COMPLETED");
         assertThat(EVENTS).containsExactly("GROUP","MEMBER","MEMBER","MEMBER","UPSERT");
@@ -76,6 +81,8 @@ class GroupMemberLookupTest {
         upsertStatus=201;assertThat(processor.resume(id)).isTrue();
         assertThat(GROUP_BODIES).hasSize(1);assertThat(MEMBER_BODIES).hasSize(3);assertThat(POSTS.get()).isEqualTo(2);
     }
+    // Group lookup has finished but member lookup has not. The next attempt should reuse only the
+    // completed group work.
     @Test void groupContextSurvivesAnInterruptedRowEnrichment()throws Exception {
         var profile=profiles.resolve(Path.of("flexible-consents.json"),null);
         String id="1".repeat(64);ledger.create(id,"row.json","2".repeat(64),"{}");
@@ -95,6 +102,7 @@ class GroupMemberLookupTest {
         var rows=input("no-change");for(var row:rows){((ObjectNode)row).put("PROVIDER_CLINICAL_CONSENT_PREFERENCE","");((ObjectNode)row).put("PAYER_CONSENT_PREFERENCE","");((ObjectNode)row).put("EXTERNAL_GROUP_ID","");}
         String id=process("no-change",rows);assertThat(ledger.get(id).status()).isEqualTo("COMPLETED");assertThat(EVENTS).isEmpty();
     }
+    // A failed group must not trigger member calls for that contract or stop unrelated contracts.
     @Test void failedGroupLookupCanIsolateOneContractUnderMediumPolicy()throws Exception {
         failedGroup="EXT-GROUP-2";
         String id=processor.process(Path.of("examples/flexible/contract-batches.csv"),"error-demo-service-v1",false);
@@ -115,6 +123,8 @@ class GroupMemberLookupTest {
     String run(String name)throws Exception{return process(name,input(name));}
     static JsonNode input(String name)throws Exception {var rows=JSON.readTree(Path.of("examples/flexible/flexible-consents.json").toFile());for(var r:rows)((ObjectNode)r).put("TEST_CASE",name);return rows;}
     String process(String name,JsonNode rows)throws Exception {Path file=WORK.resolve(name+".json");JSON.writeValue(file.toFile(),rows);return processor.process(file,"flexible-json-v1",false);}
+    // Record call order and request bodies so the tests can detect a lookup being skipped or sent
+    // too much data.
     static HttpServer server(){try{
         var server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
         server.createContext("/group",e->{EVENTS.add("GROUP");GROUP_BODIES.add(JSON.readTree(e.getRequestBody()));

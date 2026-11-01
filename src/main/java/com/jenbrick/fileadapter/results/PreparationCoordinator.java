@@ -11,7 +11,10 @@ import java.util.*;
 import org.springframework.stereotype.Component;
 import static com.jenbrick.fileadapter.results.ErrorPolicy.*;
 
-/** Medium failures isolate complete source contracts; only viable contracts reach final batching. */
+/**
+ * Check and enrich the rows, set aside rejected contracts when allowed, then build requests for the
+ * contracts that remain.
+ */
 @Component
 public class PreparationCoordinator {
     private final ResultStore results;
@@ -25,6 +28,7 @@ public class PreparationCoordinator {
         var normalized=new ArrayList<SourceRecord>();
         var rejected=new LinkedHashSet<String>();
         boolean hard=false;
+        // Normalize and check rules for the saved source rows before making lookups.
         for(var source:raw) {
             var row=normalizer.normalize(source,profile.layout());normalized.add(row);
             String key=value(row.payload(),policy.contractKey());
@@ -35,6 +39,7 @@ public class PreparationCoordinator {
                         : !v.isMissingNode() && !v.isNull() && v.asText().equals(rule.equalsValue());
                 if(!matches) continue;
                 Severity severity=rule.severity();
+                // Without a reliable contract key, we cannot safely isolate just one contract.
                 if(severity==Severity.MEDIUM && key==null) severity=Severity.HARD;
                 results.add(id,new ResultStore.Finding(severity.name(),severity==Severity.MEDIUM?"CONTRACT":severity==Severity.HARD?"FILE":"RECORD",
                         rule.code(),rule.customerRemarks(),rule.internalRemarks(),List.of(row.number()),null));
@@ -42,12 +47,14 @@ public class PreparationCoordinator {
                 if(severity==Severity.HARD) hard=true;
             }
         }
+        // Stop before any requests are built or delivered when a HARD rule rejects the file.
         if(hard) throw new RecordFailure("Hard configured validation failure");
         var enriched=new ArrayList<SourceRecord>();
         for(var row:normalized) {
             String key=value(row.payload(),policy.contractKey());
             if(rejected.contains(key)) continue;
             try {
+                // The configured chain resolves group context first, then member demographics.
                 var item=engine.enrich(id,row,profile,mode);
                 results.identify(id,row.number(),key,value(item.payload(),policy.resolvedContractKey()),value(item.payload(),policy.resolvedMemberKey()));
                 enriched.add(item);
@@ -61,6 +68,8 @@ public class PreparationCoordinator {
         // Remove all rows of a rejected external contract, including rows enriched earlier.
         var viable=enriched.stream().filter(r->!rejected.contains(value(r.payload(),policy.contractKey()))).toList();
         for(String key:rejected) rejectKey(id,key,"CONTRACT_FAILED","Contract could not be processed.");
+        // Check each complete contract separately when the profile allows the other contracts to
+        // continue.
         if(policy.projectionSeverity()==Severity.MEDIUM) {
             var batch=profile.projection().batching();
             var groups=new LinkedHashMap<List<JsonNode>,List<SourceRecord>>();
@@ -79,6 +88,7 @@ public class PreparationCoordinator {
             var single=new Projection(p.version(),p.scope(),p.maxRecords(),p.enrichers(),p.inputContract(),p.skipWhenEmpty(),p.root(),
                     new Projection.Batching(batch.groupBy(),1,batch.maxRecordsPerGroup(),batch.memberKey(),batch.maxMembersPerGroup(),batch.where()));
             for(var group:groups.values()) try {
+                // Use the same mapping and limits for this check, but give it one contract at a time.
                 engine.project(group,single);accepted.addAll(group);
             } catch(RecordFailure e) {
                 var sourceKeys=new LinkedHashSet<String>();
@@ -93,6 +103,7 @@ public class PreparationCoordinator {
             }
             viable=accepted;
         }
+        // Only the remaining contracts are packed into the final request bodies.
         return engine.project(viable,profile.projection());
     }
     private void rejectKey(String id,String key,String code,String text) {

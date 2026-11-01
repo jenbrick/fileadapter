@@ -4,7 +4,10 @@ import com.jenbrick.fileadapter.config.IngestionProperties.Mode;
 import com.jenbrick.fileadapter.config.Profile;
 import com.jenbrick.fileadapter.source.SourceRecord;
 
-/** Business-specific read-only enrichment, independent of output field names or JSON shape. */
+/**
+ * Add values to a source record without deciding the final JSON shape. Lookups here must be
+ * read-only because they may repeat.
+ */
 public interface RecordEnricher {
     String name();
     default SourceRecord enrichForRun(String runId,SourceRecord source,Profile profile,Mode mode) {

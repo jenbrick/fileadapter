@@ -14,12 +14,17 @@ import java.util.Map;
 import java.util.function.UnaryOperator;
 import org.springframework.stereotype.Component;
 
+/**
+ * Look up conversions by name so YAML can ask for trim, uppercase, date conversion, or a custom
+ * transform.
+ */
 @Component
 public class TransformRegistry {
     private final Map<String, UnaryOperator<JsonNode>> transforms = new HashMap<>();
     private final JsonNodeFactory nodes = JsonNodeFactory.instance;
 
     public TransformRegistry(List<ValueTransform> extensions) {
+        // Register the common conversions once. YAML refers to them by these names.
         transforms.put("trim", v -> nodes.textNode(v.asText().trim()));
         transforms.put("uppercase", v -> nodes.textNode(v.asText().toUpperCase(Locale.ROOT)));
         transforms.put("lowercase", v -> nodes.textNode(v.asText().toLowerCase(Locale.ROOT)));
@@ -36,6 +41,8 @@ public class TransformRegistry {
         transforms.put("us-date", v -> nodes.textNode(LocalDate.parse(v.asText(),
                 DateTimeFormatter.ofPattern("MM/dd/uuuu")
                         .withResolverStyle(ResolverStyle.STRICT)).toString()));
+        // Custom conversions use the same lookup table, but they cannot silently replace an
+        // existing name.
         for (var extension : extensions) {
             if (transforms.putIfAbsent(extension.name(), extension::apply) != null) {
                 throw new IllegalArgumentException("Duplicate transform: " + extension.name());

@@ -1,5 +1,14 @@
 # Verification notes
 
+## Plain-language code comments and cleanup — November 1, 2026
+
+Added explanations throughout the 51 production Java files, nine test classes, demo scripts, Gradle files and YAML/workflow configuration. Comments focus on file intake, lookup order, mapping, complete-contract requests, recovery boundaries, error scope and original-record returns.
+
+Removed FileProcessor’s unused normalizer/projection dependencies after preparation moved to PreparationCoordinator, unused imports, and unused Profile/ledger constructor or method overloads. Saved-run deserialization support, database upgrades and the compatibility paths still used by recovery remain in place. The orchestration class diagrams and CSV breakpoint guide now show the coordinator dependency correctly.
+
+Static checks confirm the YAML values/workflow behavior are unchanged, every production class has an explanation, and all other Java changes beyond the five cleanup files are comments/whitespace only. Java syntax, shell/Python syntax, Markdown links and diagram/source consistency checks pass. The GitHub verification workflow checks the complete build, tests and 20 packaged examples for this cleanup.
+
+
 ## Group-first member lookup — November 1, 2026
 
 The ordered chain now resolves EXTERNAL_GROUP_ID through GroupResolver, freezes internal group number/customer ID per run/group, and then invokes MemberResolver with a typed nine-property member-only payload. Source and customer-return fixtures in all formats now include external group IDs; outgoing consent fixtures retain the same JSON.

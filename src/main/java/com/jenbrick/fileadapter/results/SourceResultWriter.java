@@ -12,7 +12,10 @@ import javax.xml.stream.*;
 import org.apache.commons.csv.CSVFormat;
 import org.springframework.stereotype.Component;
 
-/** Format adapter for customer results. Preserve source values, not output/enriched consent fields. */
+/**
+ * Return original records in their incoming format, with code and remarks added. Do not use the
+ * consent JSON as the source.
+ */
 @Component
 public class SourceResultWriter {
     public record Row(ResultStore.Source source,String code,String remarks) {}
@@ -21,6 +24,7 @@ public class SourceResultWriter {
     public void write(Path target,Profile.Layout layout,ErrorPolicy policy,List<Row> rows) throws IOException {
         try(var out=new OutputStreamWriter(Files.newOutputStream(target),Charset.forName(layout.charset()).newEncoder()
                 .onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT))) {
+            // Choose the writer from the incoming layout, independent of the consent JSON shape.
             switch(layout.format()) {
                 case DELIMITED -> delimited(out,layout,policy,rows);
                 case FIXED_WIDTH -> fixed(out,layout,policy,rows);
@@ -29,6 +33,8 @@ public class SourceResultWriter {
             }
         }
     }
+    // Append result fields to original source values, and refuse to overwrite a field the customer
+    // already supplied.
     private ObjectNode record(Row row,ErrorPolicy p)throws IOException {
         var data=(ObjectNode)json.readTree(row.source().payload());
         if(data.has(p.codeField()) || data.has(p.remarksField())) throw new IOException("Result field collides with original source field");
@@ -42,6 +48,8 @@ public class SourceResultWriter {
         headers.add(p.codeField());headers.add(p.remarksField());
         var format=CSVFormat.RFC4180.builder().setDelimiter(layout.delimiter()).get();
         try(var printer=new org.apache.commons.csv.CSVPrinter(out,format)) {
+            // Headerless inputs stay headerless; the two result values simply follow the original
+            // columns.
             if(layout.headerMode()==Profile.HeaderMode.FIRST_RECORD)printer.printRecord(headers);
             for(var row:rows) {
                 var data=record(row,p);var values=new ArrayList<String>();
@@ -54,6 +62,8 @@ public class SourceResultWriter {
         int width=LayoutValidator.recordLength(layout.fixedWidth());
         for(var row:rows) {
             record(row,p); // Reject result-field collisions without rebuilding original fixed-width bytes.
+            // Keep every original fixed-width position, including fields or gaps the mapping did
+            // not use.
             String raw=row.source().rawText();
             if(raw==null || raw.codePointCount(0,raw.length())!=width) throw new IOException("Original fixed-width record unavailable");
             out.write(raw);out.write(pad(row.code(),p.codeWidth()));out.write(pad(row.remarks(),p.remarksWidth()));out.write("\n");
@@ -61,10 +71,13 @@ public class SourceResultWriter {
     }
     private String pad(String value,int width)throws IOException {
         int length=value.codePointCount(0,value.length());
+        // A result that does not fit needs attention. Silently trimming remarks could change their
+        // meaning.
         if(length>width || value.contains("\n") || value.contains("\r"))throw new IOException("Result exceeds fixed-width field");
         return value+" ".repeat(width-length);
     }
     private void json(Writer out,Profile.Layout layout,ErrorPolicy p,List<Row> rows)throws IOException {
+        // Preserve the incoming JSON record style: root array, single object, or one object per line.
         switch(layout.json().mode()) {
             case ARRAY -> {var array=json.createArrayNode();for(var row:rows)array.add(record(row,p));out.write(json.writeValueAsString(array));out.write("\n");}
             case LINES -> {for(var row:rows){out.write(json.writeValueAsString(record(row,p)));out.write("\n");}}
@@ -78,6 +91,7 @@ public class SourceResultWriter {
         try {
             var factory=XMLOutputFactory.newDefaultFactory();factory.setProperty(XMLOutputFactory.IS_REPAIRING_NAMESPACES,true);
             var writer=factory.createXMLStreamWriter(out);writer.writeStartDocument(layout.charset(),"1.0");
+            // Rebuild the configured XML container path around the selected original records.
             var path=XmlNames.recordPath(layout.xml());
             if(path.size()==1 && rows.size()!=1)throw new IOException("Single-root XML record cannot represent several selected records");
             for(int i=0;i<path.size()-1;i++)start(writer,path.get(i));
@@ -101,6 +115,7 @@ public class SourceResultWriter {
         if(uri==null)throw new IOException("Unknown XML namespace key");return new QName(uri,key.substring(colon+1),prefix);
     }
     private void element(XMLStreamWriter w,QName name,JsonNode value,Profile.Xml options)throws XMLStreamException,IOException {
+        // Repeated XML children stay repeated elements rather than becoming a JSON-style wrapper.
         if(value.isArray()){for(var child:value)element(w,name,child,options);return;}
         start(w,name);
         if(value.isNull()){w.writeAttribute("xsi",javax.xml.XMLConstants.W3C_XML_SCHEMA_INSTANCE_NS_URI,"nil","true");}
@@ -110,8 +125,8 @@ public class SourceResultWriter {
                 var attr=name(f.getKey().substring(1),options);
                 if(attr.getNamespaceURI().isEmpty())w.writeAttribute(attr.getLocalPart(),f.getValue().asText());
                 else {
-                    // A default namespace never qualifies attributes. Give Clark-name attributes
-                    // an explicit prefix instead of letting the repairing writer drop their URI.
+                    // XML attributes need an explicit namespace prefix, even when their element
+                    // uses a default namespace. Keep the attribute's original namespace here.
                     String prefix=attr.getPrefix();
                     if(prefix.isEmpty()) {
                         prefix="attr"+Integer.toUnsignedString(attr.getNamespaceURI().hashCode(),16);

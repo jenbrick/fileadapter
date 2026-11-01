@@ -1,6 +1,8 @@
 package com.jenbrick.fileadapter.source;
 
-/** Only put record numbers/configuration field names here, never source values. */
+/**
+ * Use this exception for safe error details: field names and record numbers, never raw member values.
+ */
 public final class RecordFailure extends IllegalArgumentException {
     public RecordFailure(String safeDetail) { super(safeDetail); }
 }

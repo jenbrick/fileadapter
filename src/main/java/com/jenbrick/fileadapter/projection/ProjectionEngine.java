@@ -19,7 +19,10 @@ import java.util.Map;
 import java.util.Set;
 import org.springframework.stereotype.Component;
 
-/** Generic bounded tree projection: scalar mappings, objects, filtered/grouped collections and literals. */
+/**
+ * Build the JSON from the configured mapping. The same engine handles objects, arrays, filtering,
+ * and grouped requests.
+ */
 @Component
 public class ProjectionEngine {
     public record Request(JsonNode body, List<Long> sourceRecords) {}
@@ -37,6 +40,7 @@ public class ProjectionEngine {
             throw new IllegalArgumentException("Duplicate record enricher");
     }
 
+    // Check the mapping definition before any input records or service calls are processed.
     public void validate(Projection projection) {
         if(projection.version()==null || projection.version().isBlank() || projection.scope()==null
                 || projection.maxRecords()<1 || projection.maxRecords()>10_000)
@@ -75,10 +79,13 @@ public class ProjectionEngine {
     public SourceRecord enrich(String runId, SourceRecord row, Profile profile, Mode mode) {
         validator.validateFields(row.payload(),profile.projection().inputContract());
         try {
+            // A completed enriched row is a saved result for this run, so reuse it as-is.
             String saved=store.get(runId,row.number());
             if(saved!=null) return new SourceRecord(row.number(),json.readTree(saved));
             var enriched=row;
             if(profile.projection().enrichers()!=null) for(String name:profile.projection().enrichers()) {
+                // Run enrichers in YAML order; the member step needs the context added by the group
+                // step.
                 enriched=enrichers.get(name).enrichForRun(runId,enriched,profile,mode);
                 if(enriched==null || enriched.number()!=row.number() || !enriched.payload().isObject())
                     throw new IllegalArgumentException("Enricher must preserve row identity and return an object");
@@ -88,6 +95,8 @@ public class ProjectionEngine {
         } catch(java.io.IOException e) {throw new IllegalStateException("Cannot persist enriched record",e);}
     }
 
+    // Choose request boundaries first. Rendering the JSON tree happens within each selected set of
+    // rows.
     public List<Request> project(List<SourceRecord> rows, Projection projection) {
         if(rows.size()>projection.maxRecords()) throw new RecordFailure("Projection record limit exceeded");
         var requests=new ArrayList<Request>();
@@ -95,9 +104,12 @@ public class ProjectionEngine {
         else if(projection.scope()==Projection.Scope.RECORD) for(var row:rows) projectOne(List.of(row),projection,requests);
         else {
             var batch=projection.batching();
+            // Each array can have its own filter and group keys, such as payer consent key or
+            // payer/policy.
             var selected=rows.stream().filter(row->matches(row.payload(),batch.where())).toList();
             java.util.function.Function<SourceRecord,List<JsonNode>> memberKey=batch.memberKey()==null
                     ? null : row->groupKey(row,List.of(batch.memberKey()));
+            // Gather complete contracts before splitting requests, so interleaved rows stay together.
             var partitions=RequestBatcher.partition(selected,row->groupKey(row,batch.groupBy()),memberKey,
                     batch.maxGroupsPerRequest(),batch.maxRecordsPerGroup(),batch.maxMembersPerGroup());
             for(var partition:partitions) projectOne(partition,projection,requests);
@@ -116,11 +128,13 @@ public class ProjectionEngine {
         return List.copyOf(key);
     }
 
+    // Render one complete HTTP body and record which source rows contributed to it.
     private void projectOne(List<SourceRecord> rows, Projection projection, List<Request> requests) {
         if(rows.isEmpty()) return;
         var used=new LinkedHashSet<Long>();
         JsonNode body=render(template(projection),rows,used,"$");
         if(!body.isObject() && !body.isArray()) throw new RecordFailure("Request root must be object or array");
+        // A file or group with no requested consent changes should not produce an empty POST.
         if(projection.skipWhenEmpty()!=null) {
             var value=projection.skipWhenEmpty().equals("$")?body:JsonPaths.get(body,projection.skipWhenEmpty());
             if(value.isMissingNode() || value.isNull() || (value.isContainerNode() && value.isEmpty())) return;
@@ -132,6 +146,7 @@ public class ProjectionEngine {
     private JsonNode render(Projection.Node node, List<SourceRecord> rows, Set<Long> used, String path) {
         try {
             JsonNode result;
+            // A source node produces one value. Repeated rows in a group must agree on that value.
             if(node.source()!=null) {
                 var mapping=new Profile.ScalarMapping(node.source(),node.required(),node.blankPolicy(),
                         node.defaultValue(),node.transforms(),node.values());
@@ -146,6 +161,7 @@ public class ProjectionEngine {
                 }
                 if(result==null) result=MissingNode.getInstance();
             } else if(node.literalJson()!=null) result=literal(node.literalJson());
+            // An omitted child stays out of the object; explicit null is kept as a JSON null.
             else if(node.object()!=null) {
                 var object=json.createObjectNode();
                 for(var entry:node.object().entrySet()) {
@@ -166,6 +182,8 @@ public class ProjectionEngine {
                             if(!present(value) || value.isContainerNode()) throw new RecordFailure("Missing or invalid grouping field " + field + " at record " + row.number());
                             key.add(value);
                         }
+                        // Preserve first-seen group order so the same saved input produces
+                        // consistent request ordering.
                         groups.computeIfAbsent(key,k->new ArrayList<>()).add(row);
                     }
                     for(var group:groups.values()) {
@@ -192,6 +210,7 @@ public class ProjectionEngine {
         return value!=null && !value.isMissingNode() && !value.isNull()
                 && (value.isContainerNode()?!value.isEmpty():!value.isTextual() || !value.asText().isBlank());
     }
+    // Accept one JSON value only, including constants such as null, true, or an empty array.
     private JsonNode literal(String text) {
         try(var parser=json.getFactory().createParser(text)) {
             parser.enable(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
@@ -200,8 +219,6 @@ public class ProjectionEngine {
             return value;
         } catch(java.io.IOException e) {throw new IllegalArgumentException("Invalid JSON literal");}
     }
-    // Untyped Spring maps represent indexed YAML collections as maps of numeric keys.
-    // Normalize only DSL list positions, preserving numeric/array-named output properties.
     private Projection.Node template(Projection projection) {
         try {
             JsonNode tree=json.valueToTree(projection.root());
@@ -209,6 +226,8 @@ public class ProjectionEngine {
             return json.treeToValue(tree,Projection.Node.class);
         } catch(Exception e) { throw new IllegalArgumentException("Invalid projection tree properties"); }
     }
+    // Spring can bind YAML lists as maps with numeric keys. Convert only the mapping positions that
+    // are actually lists.
     private void normalizeNode(JsonNode tree) {
         if(!(tree instanceof com.fasterxml.jackson.databind.node.ObjectNode object)) return;
         for(String field:List.of("transforms","checks")) if(object.has(field)) object.set(field,indexedList(object.get(field)));
@@ -226,6 +245,7 @@ public class ProjectionEngine {
             }
         }
     }
+    // Require consecutive list indexes so missing entries do not quietly change a template.
     private JsonNode indexedList(JsonNode value) {
         if(value.isArray()) return value;
         if(!value.isObject()) throw new IllegalArgumentException("Expected a list");
@@ -242,6 +262,7 @@ public class ProjectionEngine {
         }
         return array;
     }
+    // Bound template size and reject ambiguous nodes before trying to render any source data.
     private void checkNode(Projection.Node node, int depth, int[] count, String path) {
         if(node==null || depth>32 || ++count[0]>1024) throw new IllegalArgumentException("Projection tree exceeds limits or has no node at " + path);
         int kinds=(node.source()!=null?1:0)+(node.literalJson()!=null?1:0)+(node.object()!=null?1:0)+(node.array()!=null?1:0);

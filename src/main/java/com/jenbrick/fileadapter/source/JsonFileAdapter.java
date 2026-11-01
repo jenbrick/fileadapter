@@ -13,6 +13,10 @@ import java.nio.file.Path;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Component;
 
+/**
+ * Read JSON objects, arrays, or JSON Lines into source records. Input JSON shape is separate from
+ * the outgoing request shape.
+ */
 @Component
 public class JsonFileAdapter implements FileFormatAdapter {
     private final ObjectMapper json;
@@ -31,6 +35,8 @@ public class JsonFileAdapter implements FileFormatAdapter {
     public void read(Path file, Profile.Layout layout, Consumer<SourceRecord> consumer) throws IOException {
         LayoutValidator.validate(layout);
         try (var reader = TextInputs.open(file, layout.charset())) {
+            // Input mode controls how source records are found, regardless of whether the eventual
+            // HTTP body is an object or array.
             if (layout.json().mode() == Profile.JsonMode.LINES) {
                 String line;
                 long number = 0;
@@ -62,6 +68,7 @@ public class JsonFileAdapter implements FileFormatAdapter {
         }
     }
 
+    // Each logical source record must be an object with named fields.
     private JsonNode readObject(JsonParser parser) throws IOException {
         if (parser.currentToken() != JsonToken.START_OBJECT) {
             throw new RecordFailure("Every JSON record must be an object");
@@ -69,6 +76,7 @@ public class JsonFileAdapter implements FileFormatAdapter {
         return json.readTree(parser);
     }
 
+    // Reject trailing JSON instead of silently reading only the first document.
     private void requireEnd(JsonParser parser) throws IOException {
         if (parser.nextToken() != null) throw new RecordFailure("Unexpected data after JSON document");
     }

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run the built JAR against every example and compare semantic JSON bodies."""
+import csv
 import json
 import os
 from pathlib import Path
@@ -8,6 +9,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / "examples/flexible"
+# Each expected file is either one body or a list of bodies for the bounded-request examples.
 CASES = [
     ("flexible-consents.csv", None, "expected-envelope.json"),
     ("flexible-noheader.csv", None, "expected-envelope.json"),
@@ -34,6 +36,7 @@ def main():
     if not jar.is_file():
         raise SystemExit("Build the application first: ./gradlew test bootJar")
     for filename, profile, expected in CASES:
+        # Use a fresh work directory so an earlier completed run cannot hide a regression.
         with tempfile.TemporaryDirectory(prefix="fileadapter-example-") as directory:
             work = Path(directory)
             command = [os.environ.get("JAVA", "java"), "-jar", str(jar),
@@ -50,6 +53,7 @@ def main():
                 raise AssertionError(f"Expected one preview for {filename}/{profile}: {previews}")
             preview = json.loads(previews[0].read_text(encoding="utf-8"))
             actual = preview["requests"]
+            # Compare parsed JSON so formatting and property order do not affect the check.
             if expected:
                 fixture = json.loads((EXAMPLES / expected).read_text(encoding="utf-8"))
                 wanted = fixture if expected.endswith("-requests.json") else [fixture]
@@ -68,7 +72,6 @@ def main():
 
 
 def verify_errors(jar):
-    import csv
     for flavor in ("hard", "medium", "soft"):
         with tempfile.TemporaryDirectory(prefix="fileadapter-errors-") as directory:
             work = Path(directory)
@@ -78,12 +81,14 @@ def verify_errors(jar):
                        "--ingestion.profile-id=error-demo-" + flavor + "-v1",
                        "--ingestion.file=" + str(EXAMPLES / "contract-batches.csv")]
             result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=90)
+            # The hard-error example is supposed to reject its file and exit 1.
             expected_exit = 1 if flavor == "hard" else 0
             if result.returncode != expected_exit:
                 raise AssertionError(f"Unexpected exit for {flavor}: {result.stdout} {result.stderr}")
             ready = list((work / "results/customer").glob("*/ready.json"))
             if len(ready) != 1:
                 raise AssertionError(f"Missing customer-ready result for {flavor}")
+            # Follow the published manifest rather than guessing the revision filename.
             manifest = json.loads(ready[0].read_text())
             with (ready[0].parent / manifest["customerFile"]).open(newline="") as actual_file:
                 actual = list(csv.DictReader(actual_file))

@@ -22,6 +22,10 @@ import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
 import org.springframework.stereotype.Component;
 
+/**
+ * Read the selected XML elements as records while keeping attributes, repeated elements, and nulls
+ * distinct.
+ */
 @Component
 public class XmlFileAdapter implements FileFormatAdapter {
     private static final int MAX_DEPTH = 128;
@@ -35,6 +39,7 @@ public class XmlFileAdapter implements FileFormatAdapter {
         var selector = XmlNames.recordPath(layout.xml());
         var factory = XMLInputFactory.newDefaultFactory();
         factory.setProperty(XMLInputFactory.IS_NAMESPACE_AWARE, true);
+        // Do not let an input file load external resources or expand custom entities.
         factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
         factory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
         factory.setProperty(XMLInputFactory.IS_REPLACING_ENTITY_REFERENCES, false);
@@ -57,6 +62,7 @@ public class XmlFileAdapter implements FileFormatAdapter {
                     if (event == XMLStreamConstants.START_ELEMENT) {
                         path.add(xml.getName());
                         if (path.size() > MAX_DEPTH) throw new RecordFailure("XML nesting exceeds 128 levels");
+                        // Only the configured record elements become source records.
                         if (path.equals(selector)) {
                             JsonNode record = element(xml, layout.xml(), path.size(), new Budget());
                             if (!record.isObject()) {
@@ -108,6 +114,7 @@ public class XmlFileAdapter implements FileFormatAdapter {
                 String key = XmlNames.key(xml.getName(), options);
                 JsonNode value = element(xml, options, depth + 1, budget);
                 JsonNode previous = result.get(key);
+                // Keep repeated children as a collection so no earlier XML value is overwritten.
                 if (previous == null) result.set(key, value);
                 else if (previous instanceof ArrayNode array) array.add(value);
                 else result.set(key, JsonNodeFactory.instance.arrayNode().add(previous).add(value));
@@ -116,6 +123,7 @@ public class XmlFileAdapter implements FileFormatAdapter {
                 budget.text(xml.getTextLength());
                 text.append(xml.getTextCharacters(), xml.getTextStart(), xml.getTextLength());
             } else if (event == XMLStreamConstants.END_ELEMENT) {
+                // Keep explicit XML null separate from an empty element or empty string.
                 if (nil) {
                     if (children || !text.toString().isBlank()) {
                         throw new RecordFailure("An xsi:nil element cannot contain a value");

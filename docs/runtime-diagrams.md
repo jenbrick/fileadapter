@@ -208,9 +208,8 @@ classDiagram
     class ProfileCatalog {
         +resolve(file, explicitId) Profile
     }
-    class ProjectionEngine {
-        +enrich(runId, row, profile, mode) SourceRecord
-        +project(rows, projection) List
+    class PreparationCoordinator {
+        +prepare(id, raw, profile, mode) List
     }
     class ProcessingLedger
     class PreviewWriter
@@ -222,7 +221,7 @@ classDiagram
     FileAdapterApplication ..> FileProcessor : starts or resumes
     DirectoryPoller --> FileProcessor : polls and recovers
     FileProcessor --> ProfileCatalog
-    FileProcessor --> ProjectionEngine
+    FileProcessor --> PreparationCoordinator
     FileProcessor --> ProcessingLedger
     FileProcessor --> PreviewWriter
     FileProcessor --> UpsertClient
@@ -237,6 +236,7 @@ Editable source: [classes.mmd](diagrams/classes.mmd).
 classDiagram
     direction TB
     class FileProcessor
+    class PreparationCoordinator
     class AdapterRegistry {
         +require(format) FileFormatAdapter
     }
@@ -258,7 +258,7 @@ classDiagram
         +normalize(source, layout) SourceRecord
     }
     FileProcessor --> AdapterRegistry
-    FileProcessor --> SourceNormalizer
+    PreparationCoordinator --> SourceNormalizer
     AdapterRegistry --> FileFormatAdapter : selects by format
     FileFormatAdapter <|.. DelimitedFileAdapter
     FileFormatAdapter <|.. FixedWidthFileAdapter
@@ -318,7 +318,7 @@ Editable source: [classes-projection.mmd](diagrams/classes-projection.mmd).
 ```mermaid
 classDiagram
     direction TB
-    class FileProcessor
+    class PreparationCoordinator
     class ProjectionEngine {
         +project(rows, projection) List
         -groupKey(row, fields) List
@@ -338,7 +338,7 @@ classDiagram
         +memberKey() String
         +maxMembersPerGroup() Integer
     }
-    FileProcessor --> ProjectionEngine : bounded enriched file
+    PreparationCoordinator --> ProjectionEngine : bounded enriched file
     ProjectionEngine ..> RequestBatcher : pack complete groups
     ProjectionEngine ..> Projection : read configuration
     Projection --> Batching : optional for GROUPED scope

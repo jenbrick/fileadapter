@@ -11,7 +11,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.springframework.stereotype.Component;
 
-/** Human-readable source-labelled previews alongside the exact POST-body JSON Lines. */
+/**
+ * Write readable previews and the exact request bodies without sending them to the upsert endpoint.
+ */
 @Component
 public class PreviewWriter {
     private final ProcessingLedger ledger;
@@ -58,6 +60,7 @@ public class PreviewWriter {
             generator.writeFieldName("source");
             json.writeTree(generator, source(run, snapshot));
             generator.writeArrayFieldStart("requests");
+            // Walk saved requests in order. Each JSONL line is one whole HTTP request body.
             long after = 0;
             ProcessingLedger.Request request;
             while ((request = ledger.next(run.id(), after)) != null) {
@@ -67,6 +70,8 @@ public class PreviewWriter {
                 after = request.number();
             }
             generator.writeEndArray();
+            // Keep source row references separate from the body so tracing a request does not alter
+            // the API payload.
             generator.writeArrayFieldStart("requestDetails");
             after = 0;
             while ((request = ledger.next(run.id(), after)) != null) {
@@ -82,6 +87,7 @@ public class PreviewWriter {
             generator.writeEndArray();
             generator.writeEndObject();
         }
+        // Publish the finished preview files after their contents have been written.
         FileProcessor.atomicMove(pendingLines, lines);
         FileProcessor.atomicMove(pendingLabelled, labelled);
         return labelled;

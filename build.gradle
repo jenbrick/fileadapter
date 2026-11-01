@@ -6,6 +6,7 @@ plugins {
 group = 'com.jenbrick'
 version = '0.1.0'
 
+// Compile with Java 17 even if Gradle itself is launched from another installed JDK.
 java {
     toolchain { languageVersion = JavaLanguageVersion.of(17) }
 }
@@ -28,6 +29,7 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+// Include useful failure details in CI when a parser or saved JSON comparison fails.
 tasks.named('test') {
     useJUnitPlatform()
     testLogging { exceptionFormat = 'full' }

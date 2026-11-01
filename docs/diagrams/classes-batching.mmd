@@ -1,6 +1,6 @@
 classDiagram
     direction TB
-    class FileProcessor
+    class PreparationCoordinator
     class ProjectionEngine {
         +project(rows, projection) List
         -groupKey(row, fields) List
@@ -20,7 +20,7 @@ classDiagram
         +memberKey() String
         +maxMembersPerGroup() Integer
     }
-    FileProcessor --> ProjectionEngine : bounded enriched file
+    PreparationCoordinator --> ProjectionEngine : bounded enriched file
     ProjectionEngine ..> RequestBatcher : pack complete groups
     ProjectionEngine ..> Projection : read configuration
     Projection --> Batching : optional for GROUPED scope

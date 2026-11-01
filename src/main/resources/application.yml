@@ -14,8 +14,10 @@ ingestion:
   poll-enabled: true
   poll-interval: 5s
   minimum-age: 2s
+  # The producer creates this marker after it has finished and closed the input file.
   ready-suffix: .ready
 
+  # These settings are frozen with each run; credentials are read separately at runtime.
   delivery:
     endpoint: ${UPSERT_URL:http://localhost:8081/consents/upsert}
     connect-timeout: 5s

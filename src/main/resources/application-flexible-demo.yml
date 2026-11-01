@@ -11,6 +11,7 @@ ingestion:
         format: DELIMITED
         delimiter: ','
         header-mode: FIRST_RECORD
+      # Resolve the source group first. Its internal IDs are needed for member matching.
       group: &groupLookup
         version: group-lookup-v1
         source-field: EXTERNAL_GROUP_ID
@@ -26,6 +27,7 @@ ingestion:
             result: {internal-group-number: '20002', customer-id: CUST-2}
           - external-group-id: EXT-GROUP-3
             result: {internal-group-number: '30003', customer-id: CUST-3}
+      # This lookup sends member fields plus the group context, rather than the whole source row.
       consent: &memberLookup
         version: flexible-lookup-v1
         date-pattern: uuuu-MM-dd
@@ -65,6 +67,7 @@ ingestion:
                 contractMemberGuid: MEMBER-GUID-002
               providerConsentGuid: null
               payerConsentGuid: null
+      # This template builds the outgoing consent body. Changing it does not change either lookup.
       projection: &consentProjection
         version: flexible-consents-v1
         scope: FILE
@@ -84,6 +87,7 @@ ingestion:
         skip-when-empty: consents
         root:
           object:
+            # Reuse this collection in the alternate wrappers below.
             consents: &consentArray
               array:
               - where:
@@ -747,6 +751,7 @@ ingestion:
             consents: *consentArray
 
     # Bounded complete-contract requests; resolve members within shared external contracts.
+    # One complete contract per POST. Repeated member/payer rows stay together.
     - id: flexible-contract-single-v1
       filename-pattern: contract-batches*.csv
       layout:
@@ -1070,6 +1075,7 @@ ingestion:
             any-present:
             - PROVIDER_CLINICAL_CONSENT_PREFERENCE
             - PAYER_CONSENT_PREFERENCE
+    # The same contract object can be placed in a bounded array for the other endpoint candidate.
     - id: flexible-contract-array-v1
       filename-pattern: '*.contract-array'
       layout:
@@ -1399,6 +1405,7 @@ ingestion:
             - PAYER_CONSENT_PREFERENCE
 
     # Original-record customer returns and scoped diagnostics.
+    # Withhold the affected contract and process the remaining contracts.
     - id: error-demo-medium-v1
       filename-pattern: '*.error-medium'
       layout:
@@ -1764,6 +1771,7 @@ ingestion:
             customer-code: FILE_REJECTED
             customer-remarks: The file requires correction.
             internal-remarks: Service reported a file-level stop; already acknowledged requests cannot be rolled back.
+    # Reject the whole file before any upsert.
     - id: error-demo-hard-v1
       filename-pattern: '*.error-hard'
       layout:
@@ -2105,6 +2113,7 @@ ingestion:
           customer-remarks: The file requires correction.
           internal-remarks: Demo file-level validation blocks every request.
         service-codes: *id001
+    # Record warnings and continue processing.
     - id: error-demo-soft-v1
       filename-pattern: '*.error-soft'
       layout:
@@ -2440,6 +2449,7 @@ ingestion:
         rules:
         - *id002
         service-codes: *id001
+    # Use approved result codes when a compatible service identifies failed members/contracts.
     - id: error-demo-service-v1
       filename-pattern: '*.error-service'
       layout:

@@ -18,10 +18,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import static org.assertj.core.api.Assertions.*;
 
+/**
+ * Check the small pieces directly: delimited parsing, source names, value conversion, and
+ * required-field checks.
+ */
 class AdapterAndMappingTest {
     @TempDir Path directory;
     private final DelimitedFileAdapter adapter = new DelimitedFileAdapter();
 
+    // Quoted commas and newlines belong inside a field; they must not create extra source records.
     @Test void readsBomQuotedCommasAndMultilineFields() throws Exception {
         Path file = directory.resolve("input.csv");
         Files.writeString(file, "\uFEFFid,name,note\r\n001,\"Chen, Jr.\",\"line one\r\nline two\"\r\n");
@@ -69,6 +74,7 @@ class AdapterAndMappingTest {
                 .isInstanceOf(Exception.class);
     }
 
+    // Renaming is safe only when competing source names agree on the value.
     @Test void resolvesAliasesAndRejectsConflictingValues() {
         var data = JsonNodeFactory.instance.objectNode().put("emp_id", "001");
         var layout = new Profile.Layout(Profile.Format.DELIMITED, "UTF-8", ",",
@@ -82,6 +88,7 @@ class AdapterAndMappingTest {
                 .hasMessageContaining("conflicting source aliases");
     }
 
+    // Missing, null and blank have different meanings in the mapping, so check each one explicitly.
     @Test void scalarMappingPreservesDefaultsTypesAndPresencePolicies() {
         var values = new MappingValues(new TransformRegistry(List.of()));
         var source = JsonNodeFactory.instance.objectNode().put("id", "001").put("blank", " ")

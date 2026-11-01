@@ -5,8 +5,12 @@ import java.time.Duration;
 import java.util.List;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
-/** Adapt this port's HTTP facade to the existing group service's actual API contract. */
+/**
+ * Configure group lookup separately from member lookup. Both internal group number and customer ID
+ * are required.
+ */
 public record GroupSettings(String version,@DefaultValue("EXTERNAL_GROUP_ID") String sourceField,Lookup lookup) {
+    // Both values come from group lookup and are passed to the member-demographics request.
     public record Context(String internalGroupNumber,String customerId) {}
     public record Lookup(ConsentSettings.LookupMode mode,URI endpoint,Duration connectTimeout,
                          Duration readTimeout,List<Fixture> fixtures) {}
@@ -24,6 +28,7 @@ public record GroupSettings(String version,@DefaultValue("EXTERNAL_GROUP_ID") St
                 throw new IllegalArgumentException("Invalid group lookup endpoint/timeouts");
         } else {
             if(lookup.fixtures()==null || lookup.fixtures().isEmpty())throw new IllegalArgumentException("Group fixtures required");
+            // A fixture must resolve one external group ID to one complete context.
             var keys=new java.util.HashSet<String>();
             for(var fixture:lookup.fixtures()) {
                 if(fixture.externalGroupId()==null || fixture.externalGroupId().isBlank() || !keys.add(fixture.externalGroupId()))
@@ -32,6 +37,7 @@ public record GroupSettings(String version,@DefaultValue("EXTERNAL_GROUP_ID") St
             }
         }
     }
+    // Never let a partial group response reach the member service.
     public static Context check(Context result) {
         if(result==null || result.internalGroupNumber()==null || result.internalGroupNumber().isBlank()
                 || result.customerId()==null || result.customerId().isBlank())throw new IllegalArgumentException("Incomplete group context");

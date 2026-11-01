@@ -22,6 +22,11 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import static org.assertj.core.api.Assertions.*;
 
+/**
+ * Exercise the other input formats and edge cases so changing the JSON mapping does not break how
+ * files are read.
+ */
+// These examples use short records so a parser failure is easy to trace back to the input.
 class AdditionalAdaptersTest {
     @TempDir Path directory;
     private final ObjectMapper json = new RuntimeConfiguration().objectMapper();
@@ -194,12 +199,14 @@ class AdditionalAdaptersTest {
         return new Profile.Layout(Profile.Format.XML, "UTF-8", null, null, null, Map.of(), null, options, null);
     }
 
+    // Use the real XML adapter so namespace and null handling are part of the check.
     private List<SourceRecord> readXml(String content, Profile.Xml options) throws Exception {
         var records = new ArrayList<SourceRecord>();
         new XmlFileAdapter().read(write("input.xml", content), xml(options), records::add);
         return records;
     }
 
+    // Keep the same JSON reader setup across object, array and line-based examples.
     private List<SourceRecord> readJson(String content, Profile.JsonMode mode) throws Exception {
         var records = new ArrayList<SourceRecord>();
         var layout = new Profile.Layout(Profile.Format.JSON, "UTF-8", null, null, null, Map.of(),

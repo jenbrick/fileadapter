@@ -5,7 +5,11 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
-/** Version this definition whenever the meaning of a feed changes. */
+/**
+ * Keep the instructions for one feed together: how to read it, what to look up, how to build JSON,
+ * and how to report errors.
+ */
+// Ignore removed settings when reading an older saved run; its already-staged requests can still resume.
 @com.fasterxml.jackson.annotation.JsonIgnoreProperties(value = {"mappings", "contract"})
 public record Profile(String id, String filenamePattern, Layout layout,
                       @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -15,23 +19,14 @@ public record Profile(String id, String filenamePattern, Layout layout,
                       @JsonInclude(JsonInclude.Include.NON_NULL)
                       com.jenbrick.fileadapter.consent.GroupSettings group) {
     @ConstructorBinding public Profile {}
-    public Profile(String id,String filenamePattern,Layout layout,
-                   com.jenbrick.fileadapter.consent.ConsentSettings consent,
-                   com.jenbrick.fileadapter.projection.Projection projection) {
-        this(id,filenamePattern,layout,consent,projection,null,null);
-    }
-    public Profile(String id,String filenamePattern,Layout layout,
-                   com.jenbrick.fileadapter.consent.ConsentSettings consent,
-                   com.jenbrick.fileadapter.projection.Projection projection,
-                   com.jenbrick.fileadapter.results.ErrorPolicy errors) {
-        this(id,filenamePattern,layout,consent,projection,errors,null);
-    }
+    // CSV, pipe, semicolon and tab all use DELIMITED with a different delimiter setting.
     public enum Format { DELIMITED, FIXED_WIDTH, XML, JSON }
     public enum HeaderMode { FIRST_RECORD, NONE }
     public enum BlankPolicy { OMIT, NULL, EMPTY, REJECT }
     public enum ValueType { STRING, INTEGER, DECIMAL, BOOLEAN, OBJECT, ARRAY }
     public enum JsonMode { OBJECT, ARRAY, LINES }
 
+    // The layout describes the incoming file. The projection describes the outgoing JSON.
     public record Layout(Format format, String charset, String delimiter,
                          HeaderMode headerMode, List<String> columns,
                          Map<String, SourceField> fields,
@@ -54,6 +49,7 @@ public record Profile(String id, String filenamePattern, Layout layout,
     public record Xml(String recordPath, Map<String, String> namespaces) {}
     public record Json(JsonMode mode) {}
 
+    // Use aliases when producers use different names for the same logical field.
     public record SourceField(String column, List<String> aliases) {}
 
     public record ScalarMapping(String source, boolean required,

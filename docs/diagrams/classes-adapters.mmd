@@ -1,6 +1,7 @@
 classDiagram
     direction TB
     class FileProcessor
+    class PreparationCoordinator
     class AdapterRegistry {
         +require(format) FileFormatAdapter
     }
@@ -22,7 +23,7 @@ classDiagram
         +normalize(source, layout) SourceRecord
     }
     FileProcessor --> AdapterRegistry
-    FileProcessor --> SourceNormalizer
+    PreparationCoordinator --> SourceNormalizer
     AdapterRegistry --> FileFormatAdapter : selects by format
     FileFormatAdapter <|.. DelimitedFileAdapter
     FileFormatAdapter <|.. FixedWidthFileAdapter
