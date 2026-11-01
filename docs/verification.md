@@ -4,11 +4,13 @@
 
 Added GROUPED request partitioning, single-contract and bounded contract-array fixtures, explicit per-member payer-consent grouping, and JUnit coverage for complete-group limits, exact shapes and HTTP retry/resume. Both example runners now include 17 cases. The new GitHub verification workflow runs the full Gradle tests/build followed by the packaged example verifier on pushes to main and pull requests.
 
+**Remote verification passed:** [GitHub Actions run 41320722630](https://github.com/jenbrick/fileadapter/actions/runs/41320722630) for runtime commit `13e7dbc` completed successfully. It ran `./gradlew --no-daemon test bootJar` (including the Spring/HTTP integration tests) and all **17 packaged example comparisons**, including both contract output shapes.
+
 Local checks completed for this update:
 
 - Compiled the production `RequestBatcher` and `RecordFailure` with Java 17 and ran 13 assertions covering nonadjacent rows, one/many contracts, last partial batches, distinct-member and row limits, invalid/missing keys, empty input and immutable output.
 - Validated YAML structure for all 17 profiles, unique multi-field fixture resolution for all 8 new CSV rows, expected output grouping/counts, Markdown links and fences, diagram source consistency, Bash syntax and Python syntax.
-- Full local `./gradlew test bootJar` is blocked: no cached Gradle distribution and the distribution download reports network unreachable. The focused Java checks do not verify Spring binding, template rendering or HTTP integration. See the [GitHub verification workflow](../.github/workflows/verify.yml) for the complete build and integration/example checks; its current result must be checked separately.
+- Full local `./gradlew test bootJar` is blocked: no cached Gradle distribution and the distribution download reports network unreachable. The focused Java checks alone do not verify Spring binding, template rendering or HTTP integration; the successful remote workflow above covers those. See the [workflow definition](../.github/workflows/verify.yml).
 
 The older verification record below applies to the earlier cleanup, not to the new batching code.
 

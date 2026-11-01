@@ -48,7 +48,7 @@ flowchart TD
 
 Editable source: [architecture.mmd](architecture.mmd).
 
-File syntax stays inside adapters. Optional named enrichers add source-side values without choosing output properties. Projection profiles select object structure, collection filtering/grouping, scalar conversions and FILE/RECORD request scope. No consent target, coverage or manager path is built into the generic projection engine.
+File syntax stays inside adapters. Optional named enrichers add source-side values without choosing output properties. Projection profiles select object structure, collection filtering/grouping, scalar conversions and FILE/RECORD/GROUPED request scope. No consent target, coverage or manager path is built into the generic projection engine.
 
 Enriched rows and final request bodies are persisted separately. Preflight validates the entire bounded file before any upsert. Recovery reuses saved configuration, enrichment and payloads, with aggregate source provenance. Projection snapshots use engine version 4. The older object-path mapper and specialized consent planner have been removed; engine versions 1–3 require the previous release.
 
