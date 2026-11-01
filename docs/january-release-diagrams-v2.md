@@ -1,6 +1,5 @@
 # January Release: Class and Sequence Diagrams
 
-> V2: plain-English copy. [Original for comparison](january-release-diagrams.md). Commands, configuration examples and diagrams are unchanged.
 These diagrams show the proposed January design from the [overview](january-delivery-plan-overview-v2.md) and [detailed plan](january-delivery-plan-detailed-v2.md). The class names describe jobs we need the code to do. They do not mean these exact classes already exist.
 
 January starts with CSV. `GroupClient` calls dncgrp, and `MemberClient` calls dmqmbr. We still need to decide whether January includes several contracts per request, SOFT warnings, MEDIUM rejection by contract or member, and how much automatic recovery. Those options are marked in the diagrams.

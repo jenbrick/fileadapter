@@ -1,6 +1,5 @@
 # Customer error files and the IT report
 
-> V2: plain-English copy. [Original for comparison](error-handling.md). Commands, configuration examples and diagrams are unchanged.
 The POC writes two sets of files: customer results and a detailed internal report. Another process sends the customer file and emails IT. Configure accessible LAN folders through `CUSTOMER_RESULTS_DIR` and `INTERNAL_RESULTS_DIR`, or use the defaults under the work folder.
 
 ## What each error level does

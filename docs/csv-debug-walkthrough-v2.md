@@ -1,6 +1,5 @@
 # Follow a CSV from receipt to the consent POST
 
-> V2: plain-English copy. [Original for comparison](csv-debug-walkthrough.md). Commands, configuration examples and diagrams are unchanged.
 Read this like a debugger session: stop at a method, look at its variables and step into the next call. It uses the actual [CSV example](../examples/flexible/flexible-consents.csv) and [demo YAML](../src/main/resources/application-flexible-demo.yml). “Projection” means the configured instructions for building outgoing JSON.
 
 Keep the [runtime diagrams](runtime-diagrams-v2.md) open alongside it. The [developer guide](developer-walkthrough-v2.md) explains how to change layouts/mappings; this document follows execution.

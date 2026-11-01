@@ -1,6 +1,5 @@
 # Input formats you can run
 
-> V2: plain-English copy. [Original for comparison](formats.md). Commands, configuration examples and diagrams are unchanged.
 All examples use [the demo YAML](../src/main/resources/application-flexible-demo.yml), flexible JSON mapping and synthetic group/member results. From the repository root in Git Bash:
 
 ```bash

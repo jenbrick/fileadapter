@@ -1,6 +1,5 @@
 # January Delivery Plan Overview
 
-> V2: plain-English copy. [Original for comparison](january-delivery-plan-overview.md). Commands, configuration examples and diagrams are unchanged.
 **Goal:** build a small, complete flow that reads a file, sends consent updates and gives us enough information to support it.
 
 Use the POC to show the proposed architecture and reuse what fits. Keep January focused on CSV and the service behavior we can agree on. We may not have a partner feed or final service contracts by then, so use representative examples and write down the assumptions.

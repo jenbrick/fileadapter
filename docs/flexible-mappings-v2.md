@@ -1,6 +1,5 @@
 # Build JSON from mapping settings
 
-> V2: plain-English copy. [Original for comparison](flexible-mappings.md). Commands, configuration examples and diagrams are unchanged.
 The POC keeps file reading, lookups, JSON building and HTTP sending separate. Consent is the worked example; the mapping engine is not tied to that one API.
 
 The [working YAML](../src/main/resources/application-flexible-demo.yml) recreates the [October 29 sample](../examples/json-sample/CONSENT%20JSON%20ARRAY.txt): an object with `consents`, provider `coverage: []`, payer coverage arrays and a `consentManager` on each consent entry.

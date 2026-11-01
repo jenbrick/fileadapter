@@ -1,6 +1,5 @@
 # Look up the group first, then the member
 
-> V2: plain-English copy. [Original for comparison](group-member-lookups.md). Commands, configuration examples and diagrams are unchanged.
 For each record that requests a consent change:
 
 1. Read the record and put its fields into a consistent form.

@@ -1,6 +1,5 @@
 # How the current POC fits together
 
-> V2: plain-English copy. [Original for comparison](architecture.md). Commands, configuration examples and diagrams are unchanged.
 Start with the [developer walkthrough](developer-walkthrough-v2.md) for the code tour. The [runtime diagrams](runtime-diagrams-v2.md) show the calls between classes, and the [CSV walkthrough](csv-debug-walkthrough-v2.md) follows a record through the code. The [mapping guide](flexible-mappings-v2.md) explains the YAML settings.
 
 ```mermaid

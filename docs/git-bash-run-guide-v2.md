@@ -1,6 +1,5 @@
 # Run the POC from Git Bash
 
-> V2: plain-English copy. [Original for comparison](git-bash-run-guide.md). Commands, configuration examples and diagrams are unchanged.
 Use **Git Bash on Windows** and run these commands from the repository’s top folder. This guide runs the current POC. January’s proposed CSV-only release is a smaller scope.
 
 ## 1. Open your copy of the code

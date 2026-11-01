@@ -1,6 +1,5 @@
 # Where to change or extend the code
 
-> V2: plain-English copy. [Original for comparison](extensions.md). Commands, configuration examples and diagrams are unchanged.
 The POC builds JSON from configured projections. Start with the [developer change guide](developer-walkthrough-v2.md) and [mapping reference](flexible-mappings-v2.md).
 
 | What needs to change | Where to change it |

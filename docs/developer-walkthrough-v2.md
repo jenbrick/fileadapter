@@ -1,6 +1,5 @@
 # FileAdapter: follow the code and make changes
 
-> V2: plain-English copy. [Original for comparison](developer-walkthrough.md). Commands, configuration examples and diagrams are unchanged.
 This Spring Boot/Gradle POC reads files, optionally looks up more information, builds JSON from settings and sends it over HTTP. Consent is the example. Each part has a separate job so a change to file syntax does not have to change service calls or JSON structure.
 
 The flexible projection engine is the only current processing path. Start with the [working YAML](../src/main/resources/application-flexible-demo.yml), [input examples](formats-v2.md) and [mapping reference](flexible-mappings-v2.md).

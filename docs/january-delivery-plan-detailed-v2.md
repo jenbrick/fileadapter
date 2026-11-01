@@ -1,6 +1,5 @@
 # January Delivery Plan Detailed
 
-> V2: plain-English copy. [Original for comparison](january-delivery-plan-detailed.md). Commands, configuration examples and diagrams are unchanged.
 The [January diagrams](january-release-diagrams-v2.md) show the proposed classes, successful flow and error paths. Optional items are marked for discussion. This plan describes what to build for January; the POC already demonstrates more than that.
 
 ## 1. Give each part a clear job

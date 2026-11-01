@@ -1,6 +1,5 @@
 # Send one complete contract or several complete contracts
 
-> V2: plain-English copy. [Original for comparison](contract-batching.md). Commands, configuration examples and diagrams are unchanged.
 The receiving service is still being designed. These are **two possible JSON formats for the POC**. We are not claiming the endpoint accepts them yet. Consent fields follow the [original JSON example](../examples/json-sample/CONSENT%20JSON%20ARRAY.txt).
 
 ## What each request contains

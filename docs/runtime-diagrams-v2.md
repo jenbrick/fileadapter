@@ -1,6 +1,5 @@
 # Current POC class and sequence diagrams
 
-> V2: plain-English copy. [Original for comparison](runtime-diagrams.md). Commands, configuration examples and diagrams are unchanged.
 These diagrams show the code that exists in the POC. For the smaller proposed January design, see the [January diagrams](january-release-diagrams-v2.md).
 
 The POC calls the [group service before the member service](group-member-lookups-v2.md) and supports [both complete-contract JSON examples](contract-batching-v2.md). The happy path uses `GROUPED` mode. Whole-file (`FILE`) and one-record (`RECORD`) mapping are also available. “Projection” means the configured instructions for building the outgoing JSON.

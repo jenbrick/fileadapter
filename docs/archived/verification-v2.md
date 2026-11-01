@@ -1,6 +1,5 @@
 # What was checked for earlier changes
 
-> V2: plain-English copy. [Original for comparison](verification.md). Commands, configuration examples and diagrams are unchanged.
 This is the verification history for the changes listed below. The dates, commits, workflow links and results refer to those changes, not to a new test run for this wording update.
 
 ## Code comments and cleanup — November 1, 2026
