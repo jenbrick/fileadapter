@@ -38,14 +38,15 @@ sequenceDiagram
                         M->>L: Save enriched payload
                     end
                 end
-                P->>M: project all rows (FILE) or each row (RECORD)
-                alt Parse, lookup, mapping, conflict or validation failure
+                P->>M: project using FILE, RECORD or GROUPED scope
+                M->>M: GROUPED gathers contracts, checks caps and partitions requests
+                alt Parse, lookup, limit, mapping, conflict or validation failure
                     M-->>P: Exception
                     P->>P: fail(PREFLIGHT); report; move processing files to errors
                     P->>L: FAILED
                     Note over P,O: Stop this run; no upsert is sent
                 else Preparation succeeds
-                    M-->>P: Bodies and source provenance
+                    M-->>P: One contract or bounded contract arrays with source provenance
                     P->>L: Stage requests; READY
                 end
             end

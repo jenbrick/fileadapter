@@ -19,6 +19,8 @@ java -agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:500
 
 Attach your IDE’s Java remote debugger to localhost port 5005, then continue. The JVM pauses before application startup. Attach source from the same checkout used to build the JAR. Use method breakpoints or break on the statements named below; line numbers change as the code evolves.
 
+This first trace follows the original FILE-scope sample. For bounded contract requests and the interleaved CSV, follow section 18 as well.
+
 The profile defaults to PREVIEW with synthetic lookup fixtures. It will generate the consent request but will not POST it. Sections 14–15 explain how to trace LIVE delivery after the real HTTP lookup facade is available. Choose a fresh work directory when you need a fresh trace: identical content plus identical saved configuration reuses a run and may bypass parsing entirely.
 
 ## 2. Understand what enters the pipeline
@@ -194,7 +196,7 @@ The engine persists the enriched payload before returning it. Lookups are saved 
 
 **Breakpoint:** `FileProcessor.execute()` at `projections.project(...)`, then `ProjectionEngine.project()` and private `render()`.
 
-After all three callbacks complete, `projectionRows.size()` is 3. FILE scope renders one request using the complete bounded collection. RECORD scope would render each row separately and could not combine repeated rows into one coverage collection.
+After all three callbacks complete, `projectionRows.size()` is 3. FILE scope renders one request using the complete bounded collection. RECORD scope would render each row separately and could not combine repeated rows into one coverage collection. GROUPED scope partitions complete contracts first, then renders each bounded partition (section 18).
 
 `template()` converts the configured root into the node model, normalizing Spring’s indexed-map representation of DSL lists. `render()` recursively handles:
 
@@ -328,6 +330,37 @@ Use the same work directory and supply the required runtime credentials. Resume 
 
 A manual resume grants another attempt budget, but does not override `replay-safe=false`. If a previous delivery attempt exists under that saved policy, it pauses again pending service-side reconciliation. FAILED runs return false. Snapshot versions from removed processors are not interpreted by this release.
 
+## 18. Trace one-contract and bounded multi-contract requests
+
+Use the same debugger startup command but select `--ingestion.profile-id=flexible-contract-single-v1` and `--ingestion.file=examples/flexible/contract-batches.csv`, with a fresh work directory. Then repeat with `flexible-contract-array-v1`. Both default to PREVIEW; the LIVE lookup restrictions in section 14 still apply.
+
+This fixture repeats `EXT-CONTRACT-A` for Alex and John and uses the other identity fields to resolve the correct member. Eight records cover three contracts and five members. See [the contract fixture guide](contract-batching.md) for identities, complete expected outputs and limits.
+
+At `ProjectionEngine.project()` inspect:
+
+```text
+projection.scope()                          GROUPED
+projection.batching().groupBy()              [resolved.owner.contract]
+projection.batching().maxGroupsPerRequest()   1 (single) or 2 (array default)
+projection.batching().maxRecordsPerGroup()    100
+projection.batching().maxMembersPerGroup()    25
+```
+
+After the batching filter removes no-change rows, step into `RequestBatcher.partition()`. Its first-seen map gathers internal contract 123456789 from source rows 1, 2, 4 and 7; contract 222222222 from 3, 5 and 8; and contract 333333333 from 6. Member limits count distinct GUIDs; row limits include every selected coverage row. A contract over either limit throws before any upsert and is never split silently.
+
+Single mode partitions these into three requests. Array mode puts the first two complete contracts into one request and the remaining contract into a second request. Step back into `projectOne()` / `render()` for each partition. The array template adds a root collection grouped by contract; each contract has `contractId` and its member-owned `consents`.
+
+For John, payer group key `P2P-A` combines rows 2 and 4 into one GRANT consent with two coverages. Key `P2P-B` makes row 7 a second payer consent with RVOKE and one coverage. The provider group remains one PCDS entry. The optional source key is included in HTTP lookup criteria so a real facade can return that particular existing consent’s GUID; it is not an outgoing property.
+
+Back at `ProcessingLedger.stage()`, inspect the request numbers and origins:
+
+| Mode | Request 1 source records | Request 2 | Request 3 |
+| --- | --- | --- | --- |
+| Single | `[1,2,4,7]` | `[3,8,5]` | `[6]` |
+| Array (limit 2) | `[1,2,4,7,3,8,5]` | `[6]` | None |
+
+All bodies are prepared/staged before delivery. At `deliver()`, the key’s request-number suffix is now significant: if request 1 succeeds but 2 pauses, resume skips request 1 and reuses request 2’s saved JSON and key. It does not rerender a different set of contracts from an edited config. The in-memory file cap remains 1000; bounded HTTP requests do not make preparation an unlimited-file streaming implementation.
+
 ## Breakpoint checklist
 
 | Stop | Inspect |
@@ -340,7 +373,7 @@ A manual resume grants another attempt budget, but does not override `replay-saf
 | `ProjectionEngine.enrich` | Input contract and saved enriched payload |
 | `ConsentMemberEnricher.enrich` | Criteria, owner, manager and consent GUIDs |
 | `ConfiguredMemberResolver.resolve` | FIXTURE or HTTP resolution |
-| `ProjectionEngine.project` / `render` | FILE scope, groups and final JsonNode |
+| `ProjectionEngine.project` / `RequestBatcher.partition` / `render` | Scope, complete-contract partitions, limits and final JsonNode |
 | `ProcessingLedger.stage` | Complete saved body and source record list |
 | `PreviewWriter.write` | Generated files in PREVIEW |
 | `FileProcessor.deliver` | Saved payload, attempts and replay policy |

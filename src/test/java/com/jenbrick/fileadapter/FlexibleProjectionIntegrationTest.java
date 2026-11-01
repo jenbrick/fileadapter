@@ -137,6 +137,36 @@ class FlexibleProjectionIntegrationTest {
         assertThat(saved.payload().path("resolved").has("providerConsentGuid")).isTrue();
         assertThat(saved.payload().at("/resolved/owner/contractMemberGuid").asText()).isEqualTo("MEMBER-GUID-001");
     }
+    @ParameterizedTest @CsvSource({"flexible-contract-single-v1,expected-contract-single-requests.json,3",
+            "flexible-contract-array-v1,expected-contract-array-requests.json,2"})
+    void completeContractsProduceBothBoundedShapes(String profile,String fixture,int count)throws Exception {
+        String id=processor.process(Path.of("examples/flexible/contract-batches.csv"),profile,false);
+        assertThat(ledger.get(id).status()).isEqualTo("PREVIEWED");
+        assertThat(ledger.count(id)).isEqualTo(count);
+        var expected=json.readTree(Path.of("examples/flexible",fixture).toFile());
+        for(int i=0;i<count;i++) assertThat(json.readTree(ledger.next(id,i).payload())).isEqualTo(expected.get(i));
+        assertThat(ledger.next(id,0).sourceRecords()).isEqualTo(profile.contains("single")?"[1, 2, 4, 7]":"[1, 2, 4, 7, 3, 8, 5]");
+    }
+    @Test void groupedLimitsAndMissingKeysAreValidated() {
+        var root=java.util.Map.<String,Object>of("literal-json","{}");
+        var invalid=new Projection("invalid",Projection.Scope.GROUPED,10,null,null,null,root,
+                new Projection.Batching(List.of("contract"),0,10,null,null,null));
+        assertThatThrownBy(()->engine.validate(invalid)).hasMessageContaining("GROUPED requires");
+        var valid=new Projection("valid",Projection.Scope.GROUPED,10,null,null,null,root,
+                new Projection.Batching(List.of("contract"),1,10,"member",2,null));
+        engine.validate(valid);
+        assertThatThrownBy(()->engine.project(List.of(new SourceRecord(1,json.createObjectNode())),valid))
+                .hasMessageContaining("Missing or invalid batching key");
+        var rows=List.of(new SourceRecord(1,json.createObjectNode().put("contract","C").put("member","1")),
+                new SourceRecord(2,json.createObjectNode().put("contract","C").put("member","2")),
+                new SourceRecord(3,json.createObjectNode().put("contract","C").put("member","3")));
+        assertThatThrownBy(()->engine.project(rows,valid)).hasMessageContaining("member limit");
+    }
+    @Test void groupedNoChangeRowsNeedNoResolvedIdentity() {
+        var base=profiles.resolve(Path.of("contract-batches.csv"),null).projection();
+        assertThat(engine.project(List.of(new SourceRecord(1,json.createObjectNode()
+                .put("PROVIDER_CLINICAL_CONSENT_PREFERENCE","").put("PAYER_CONSENT_PREFERENCE",""))),base)).isEmpty();
+    }
     String processJson(String name,com.fasterxml.jackson.databind.JsonNode rows)throws Exception{
         Path path=WORK.resolve(name+".json");json.writeValue(path.toFile(),rows);
         return processor.process(path,"flexible-json-v1",false);

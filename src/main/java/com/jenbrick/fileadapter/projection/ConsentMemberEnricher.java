@@ -38,7 +38,7 @@ public class ConsentMemberEnricher implements RecordEnricher {
         if(!provider && !payer) return source;
         var criteria=json.createObjectNode();
         for(String field:List.of("EXTERNAL_CONTRACT_ID","RELATIONSHIP_CODE","LAST_NAME","FIRST_NAME",
-                "MIDDLE_NAME","GENDER_CODE","DATE_OF_BIRTH","EXTERNAL_GROUP_ID","PAYER_ID","PAYER_POLICY_ID")) {
+                "MIDDLE_NAME","GENDER_CODE","DATE_OF_BIRTH","EXTERNAL_GROUP_ID","PAYER_ID","PAYER_POLICY_ID","PAYER_CONSENT_KEY")) {
             var value=row.get(field);
             if(value!=null && !value.isNull() && !value.isTextual()) throw new IllegalArgumentException("Lookup fields must be strings");
             if(value==null || value.isNull()) criteria.putNull(field); else criteria.put(field,value.asText().trim());

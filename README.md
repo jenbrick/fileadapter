@@ -4,6 +4,21 @@ A Spring Boot / Gradle proof of concept for adapting files into configurable JSO
 
 Java 17 · Spring Boot 3.5.16 · Gradle Wrapper 8.14.3 · Jackson · Apache Commons CSV · local H2 ledger.
 
+## Bounded contract requests: the two API candidates
+
+Use `flexible-contract-single-v1` for one complete contract with its members’ consents per POST, or `flexible-contract-array-v1` for an array of up to `CONTRACTS_PER_REQUEST` complete contracts (default 2). Both retain each member’s multiple payer-consent groups and each consent’s coverage collection. These are candidate request wrappers for the evolving endpoint.
+
+```bash
+./gradlew test bootJar
+java -jar build/libs/fileadapter-0.1.0.jar \
+  --spring.profiles.active=flexible-demo \
+  --ingestion.profile-id=flexible-contract-single-v1 \
+  --ingestion.file=examples/flexible/contract-batches.csv
+# Repeat with --ingestion.profile-id=flexible-contract-array-v1 for bounded arrays.
+```
+
+The interleaved eight-row CSV repeats external contract IDs across five members in three contracts. It produces three single-contract bodies or two array bodies. Contract limits default to 25 distinct members and 100 source rows; oversized contracts fail preparation. See [contract batching](docs/contract-batching.md) for both expected outputs, environment settings, payer-consent identity and recovery. The original whole-file examples below remain as mapping comparisons.
+
 ## Start with the flexible mapping example
 
 In Git Bash, from the repository root:
@@ -68,16 +83,17 @@ Git Bash uses `./gradlew`; Command Prompt can use `gradlew.bat`. The artifact is
 
 PREVIEW exports the selected request bodies; LIVE posts them with Jackson. Normal HTTP enrichment can run in PREVIEW, while fixture-based member enrichment is refused in LIVE. Use `UPSERT_URL` / `UPSERT_BEARER_TOKEN` for delivery, and the separate lookup variables described in the mapping guide.
 
-The worker validates and stages the whole file before any upsert. It stores configuration snapshots, enriched rows, mapped payloads, source provenance and delivery state in H2. Resume uses saved bodies. Replay safety defaults to false and requires a service-side idempotency guarantee. Grouped requests track multiple contributing source rows.
+The worker validates and stages the bounded file before any upsert. `GROUPED` scope partitions complete contracts into bounded requests; `FILE` and `RECORD` remain available. It stores configuration snapshots, enriched rows, mapped payloads, source provenance and delivery state in H2. Resume uses saved bodies. Replay safety defaults to false and requires a service-side idempotency guarantee. Grouped requests track multiple contributing source rows.
 
 This POC uses one worker, persistent local work storage and a mounted LAN input directory. Polling requires a closed input file plus its `.ready` marker; one-shot input is copied. To poll a real share, configure the input path, profile patterns and `--ingestion.poll-enabled=true`. The demo's filename patterns are illustrative. The application does not mount SMB shares or manage share credentials.
 
-FILE scope supports bounded aggregation, not arbitrary-volume streaming: the example limit is 1,000 records, with a configurable maximum of 10,000. No batch atomicity, per-entry response handling, exactly-once transaction or distributed claiming is implied. Inputs, enrichment results, previews and archives can contain member data; use appropriate access and retention controls. Repository examples are synthetic.
+FILE scope supports bounded aggregation, not arbitrary-volume streaming: the example limit is 1,000 records, with a configurable maximum of 10,000. Contract batching bounds outgoing requests; it does not remove the in-memory file limit or enforce serialized byte-size limits. No batch atomicity, per-entry response handling, exactly-once transaction or distributed claiming is implied. Inputs, enrichment results, previews and archives can contain member data; use appropriate access and retention controls. Repository examples are synthetic.
 
 ## Documentation
 
 - [Runtime sequence and class diagrams](docs/runtime-diagrams.md): happy path, alternate paths, retries and extension interfaces.
 - [CSV debugger walkthrough](docs/csv-debug-walkthrough.md): breakpoints and data from receipt through consent delivery.
+- [Contract batching and two JSON shapes](docs/contract-batching.md): complete-contract limits, multiple members and payer consents.
 - [Step-by-step code walkthrough and change guide](docs/developer-walkthrough.md): how to change layouts, delimiters, attributes, nesting and root arrays.
 - [Flexible mappings](docs/flexible-mappings.md): template syntax, grouping and enrichment.
 - [Runnable format matrix](docs/formats.md): all input examples and output variants.

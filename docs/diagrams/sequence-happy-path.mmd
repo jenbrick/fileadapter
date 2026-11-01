@@ -10,13 +10,18 @@ sequenceDiagram
     P->>L: create run (STAGING)
     P->>M: read CSV, normalize and enrich each row
     M->>L: Save enriched rows
-    P->>M: project(rows, projection)
-    M-->>P: One consents envelope with source row numbers
-    P->>L: stage body; status READY
-    P->>L: status DELIVERING; mark request SENDING
-    P->>H: post(saved body, runId:requestNumber, settings)
-    H-->>P: ACKNOWLEDGED
-    P->>L: Save acknowledgement; status FINALIZING
+    P->>M: project(rows, GROUPED projection)
+    M->>M: Gather whole contracts and enforce row/member caps
+    M-->>P: Single-contract objects or bounded contract arrays
+    P->>L: Stage each body with its source rows; status READY
+    P->>L: status DELIVERING
+    loop Each staged request
+        P->>L: Mark request SENDING
+        P->>H: post(saved body, runId:requestNumber, settings)
+        H-->>P: ACKNOWLEDGED
+        P->>L: Save request acknowledgement
+    end
+    P->>L: status FINALIZING
     P->>P: Archive input and snapshot
     P->>L: status COMPLETED
     P-->>I: runId

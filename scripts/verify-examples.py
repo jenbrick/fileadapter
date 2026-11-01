@@ -24,6 +24,8 @@ CASES = [
     ("flexible-consents.csv", "flexible-contract-envelope-v1", "expected-contract-envelope.json"),
     ("flexible-consents.csv", "flexible-reshaped-v1", "expected-reshaped.json"),
     ("flexible-consents.csv", "flexible-record-v1", None),
+    ("contract-batches.csv", "flexible-contract-single-v1", "expected-contract-single-requests.json"),
+    ("contract-batches.csv", "flexible-contract-array-v1", "expected-contract-array-requests.json"),
 ]
 
 
@@ -49,7 +51,8 @@ def main():
             preview = json.loads(previews[0].read_text(encoding="utf-8"))
             actual = preview["requests"]
             if expected:
-                wanted = [json.loads((EXAMPLES / expected).read_text(encoding="utf-8"))]
+                fixture = json.loads((EXAMPLES / expected).read_text(encoding="utf-8"))
+                wanted = fixture if expected.endswith("-requests.json") else [fixture]
             else:
                 rows = json.loads((EXAMPLES / "flexible-consents.json").read_text(encoding="utf-8"))
                 wanted = [{"person": {"firstName": row["FIRST_NAME"].strip(),

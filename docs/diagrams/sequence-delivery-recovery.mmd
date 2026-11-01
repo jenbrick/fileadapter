@@ -4,6 +4,7 @@ sequenceDiagram
     participant L as ProcessingLedger
     participant H as HttpUpsertClient
     participant S as Upsert endpoint
+    Note over P,L: Each request is one contract or a bounded array; acknowledged earlier requests are skipped
     alt Request already REJECTED
         P->>P: fail(HTTP_REJECTED); stop
     else Prior attempt exists and replay-safe is false
@@ -34,7 +35,7 @@ sequenceDiagram
                 P->>P: PAUSED; stop run
             else More attempts available
                 P->>P: Exponential delay capped at 30 seconds
-                Note over P,H: Retry same saved JSON and same idempotency key
+                Note over P,H: Retry same complete contract batch and same idempotency key
             else Budget exhausted
                 P->>P: PAUSED; stop run
             end

@@ -1,0 +1,26 @@
+classDiagram
+    direction TB
+    class FileProcessor
+    class ProjectionEngine {
+        +project(rows, projection) List
+        -groupKey(row, fields) List
+        -projectOne(rows, projection, requests)
+    }
+    class RequestBatcher {
+        +partition(rows, groupKey, memberKey, maxGroups, maxRecords, maxMembers) List
+    }
+    class Projection {
+        +scope() Scope
+        +batching() Batching
+    }
+    class Batching {
+        +groupBy() List
+        +maxGroupsPerRequest() int
+        +maxRecordsPerGroup() int
+        +memberKey() String
+        +maxMembersPerGroup() Integer
+    }
+    FileProcessor --> ProjectionEngine : bounded enriched file
+    ProjectionEngine ..> RequestBatcher : pack complete groups
+    ProjectionEngine ..> Projection : read configuration
+    Projection --> Batching : optional for GROUPED scope

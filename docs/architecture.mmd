@@ -8,7 +8,10 @@ flowchart TD
     Adapter --> Normalize["Normalize physical fields and aliases"]
     Normalize --> Enrich["Named read-only RecordEnrichers"]
     Enrich --> Frozen["Persist enriched records in H2"]
-    Frozen --> Build["Configured object trees and filtered grouped collections"]
+    Frozen --> Batch["GROUPED: gather complete contracts; enforce row and member caps"]
+    Batch --> Pack["One contract or capped contracts per request"]
+    Pack --> Build["Render each request: member consents and payer coverage groups"]
+    Frozen -->|FILE or RECORD scope| Build
     Build --> Validate["Check group consistency, required fields and limits"]
     Validate --> Stage["Stage complete request bodies and source provenance"]
     Stage --> Ready["Entire file ready before delivery"]

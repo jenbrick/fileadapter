@@ -34,6 +34,7 @@ class FlexibleProjectionLiveTest {
     static final List<String> KEYS=new CopyOnWriteArrayList<>();
     static final AtomicInteger LOOKUPS=new AtomicInteger();
     static volatile int status=201;
+    static volatile int failRequest=0;
     static volatile int lookupStatus=200;
     static volatile String providerGuid;
     static final HttpServer SERVER=server();
@@ -45,7 +46,7 @@ class FlexibleProjectionLiveTest {
     @Autowired ProcessingLedger ledger;
     @Autowired com.jenbrick.fileadapter.config.ProfileCatalog profiles;
     @Autowired com.jenbrick.fileadapter.config.IngestionProperties properties;
-    @BeforeEach void reset(){BODIES.clear();KEYS.clear();LOOKUPS.set(0);status=201;lookupStatus=200;providerGuid=null;}
+    @BeforeEach void reset(){BODIES.clear();KEYS.clear();LOOKUPS.set(0);status=201;lookupStatus=200;providerGuid=null;failRequest=0;}
     @AfterAll static void stop(){SERVER.stop(0);}
     @Test void configuredEnvelopeReachesHttpWithoutShapeSpecificDeliveryCode()throws Exception{
         String id=processor.process(input("http"),"flexible-json-v1",false);
@@ -137,6 +138,31 @@ class FlexibleProjectionLiveTest {
         assertThat(processor.resume(id)).isTrue();
         assertThat(BODIES).hasSize(1);assertThat(LOOKUPS.get()).isZero();
     }
+    @Test void contractResumeSkipsAcknowledgedContractsAndKeepsTheFailedBodyAndKey()throws Exception {
+        failRequest=2;
+        String id=processor.process(Path.of("examples/flexible/contract-batches.csv"),"flexible-contract-single-v1",false);
+        assertThat(ledger.get(id).status()).isEqualTo("PAUSED");
+        assertThat(BODIES).hasSize(2);
+        assertThat(ledger.next(id,0).status()).isEqualTo("ACKNOWLEDGED");
+        failRequest=0;
+        assertThat(processor.resume(id)).isTrue();
+        assertThat(BODIES).hasSize(4);
+        assertThat(BODIES.get(1)).isEqualTo(BODIES.get(2));
+        assertThat(KEYS.get(1)).isEqualTo(KEYS.get(2));
+        assertThat(KEYS.get(0)).isNotEqualTo(KEYS.get(1));
+        assertThat(LOOKUPS.get()).isEqualTo(8);
+        var expected=JSON.readTree(Path.of("examples/flexible/expected-contract-single-requests.json").toFile());
+        assertThat(BODIES.get(0)).isEqualTo(expected.get(0));
+        assertThat(BODIES.get(3)).isEqualTo(expected.get(2));
+    }
+    @Test void contractArrayBatchesReachHttpWithTheConfiguredLimit()throws Exception {
+        String id=processor.process(Path.of("examples/flexible/contract-batches.csv"),"flexible-contract-array-v1",false);
+        assertThat(ledger.get(id).status()).isEqualTo("COMPLETED");
+        var expected=JSON.readTree(Path.of("examples/flexible/expected-contract-array-requests.json").toFile());
+        assertThat(BODIES).hasSize(2);
+        assertThat(BODIES.get(0)).isEqualTo(expected.get(0));
+        assertThat(BODIES.get(1)).isEqualTo(expected.get(1));
+    }
     static Path input(String name)throws Exception{
         var rows=JSON.readTree(Path.of("examples/flexible/flexible-consents.json").toFile());
         for(var row:rows)((ObjectNode)row).put("TEST_CASE",name);
@@ -148,14 +174,21 @@ class FlexibleProjectionLiveTest {
             LOOKUPS.incrementAndGet();
             if(lookupStatus!=200){exchange.sendResponseHeaders(lookupStatus,-1);exchange.close();return;}
             var criteria=JSON.readTree(exchange.getRequestBody());
-            String id=criteria.path("EXTERNAL_CONTRACT_ID").asText().endsWith("001")?"001":"002";
-            var identity=JSON.createObjectNode().put("contract","123456789").put("pin",id).put("contractMemberGuid","MEMBER-GUID-"+id);
+            String external=criteria.path("EXTERNAL_CONTRACT_ID").asText();
+            String id=external.startsWith("EXT-CONTRACT-")
+                    ? java.util.Map.of("Alex","001","John","002","Morgan","003","Taylor","004","Jamie","005")
+                        .get(criteria.path("FIRST_NAME").asText())
+                    : external.substring("EXTERNAL-".length());
+            int member=Integer.parseInt(id);
+            String contract=member<=2?"123456789":member<=4?"222222222":"333333333";
+            String pin=String.format("%03d",member<=4?(member-1)%2+1:1);
+            var identity=JSON.createObjectNode().put("contract",contract).put("pin",pin).put("contractMemberGuid","MEMBER-GUID-"+id);
             var result=JSON.createObjectNode();result.set("owner",identity);result.set("manager",identity);
             result.put("providerConsentGuid",id.equals("001")?providerGuid:null);result.putNull("payerConsentGuid");byte[] body=JSON.writeValueAsBytes(result);
             exchange.getResponseHeaders().set("Content-Type","application/json");exchange.sendResponseHeaders(200,body.length);
             exchange.getResponseBody().write(body);exchange.close();
         });
-        server.createContext("/upsert",exchange->{BODIES.add(JSON.readTree(exchange.getRequestBody()));KEYS.add(exchange.getRequestHeaders().getFirst("Idempotency-Key"));exchange.sendResponseHeaders(status,-1);exchange.close();});
+        server.createContext("/upsert",exchange->{BODIES.add(JSON.readTree(exchange.getRequestBody()));KEYS.add(exchange.getRequestHeaders().getFirst("Idempotency-Key"));exchange.sendResponseHeaders(failRequest==BODIES.size()?503:status,-1);exchange.close();});
         server.start();return server;
     }catch(Exception e){throw new ExceptionInInitializerError(e);}}
     static String base(){return "http://127.0.0.1:"+SERVER.getAddress().getPort();}

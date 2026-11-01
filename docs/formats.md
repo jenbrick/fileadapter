@@ -7,7 +7,7 @@ All examples use the flexible projection flow and synthetic lookup fixtures in [
 bash scripts/run-examples.sh
 ```
 
-The runner forces PREVIEW. It requires Java and an already built JAR. Every input below is automatically routed by filename, with no explicit feed ID required.
+The runner forces PREVIEW. It requires Java and an already built JAR. Every input in the first table below is automatically routed by filename, with no explicit feed ID required. The runner additionally selects both new contract batching profiles explicitly.
 
 | Input | Feed profile | Expected request body |
 | --- | --- | --- |
@@ -63,3 +63,14 @@ python scripts/verify-examples.py
 ```
 
 This creates temporary work directories, runs the JAR for each case and compares parsed JSON bodies. `JAVA` may name a Java executable; `FILEADAPTER_JAR` may name another built JAR. This verifier is optional; Java/Gradle and the Bash runner are sufficient to run the application.
+
+## Bounded contract variants
+
+[contract-batches.csv](../examples/flexible/contract-batches.csv) repeats external contract IDs across members and interleaves 8 rows for 3 contracts / 5 members. Its additional `PAYER_CONSENT_KEY` separates distinct payer consents within a member; repeated keys can collect multiple coverage items.
+
+| Profile | Request bodies | Expected fixture |
+| --- | --- | --- |
+| `flexible-contract-single-v1` | 3 contract objects, one per HTTP request | `expected-contract-single-requests.json` |
+| `flexible-contract-array-v1` | 2 root arrays, containing 2 then 1 contracts by default | `expected-contract-array-requests.json` |
+
+Each expected fixture contains the complete list of request bodies, unlike the older single-body fixtures. Run with `--ingestion.profile-id=<profile>` and `--ingestion.file=examples/flexible/contract-batches.csv`. See [limits and both shapes](contract-batching.md). Both runners now include 17 cases in total. Existing format examples continue to demonstrate the original shape and do not require the new payer-consent key.

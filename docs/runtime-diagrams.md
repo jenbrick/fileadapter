@@ -1,6 +1,6 @@
 # Runtime sequence and class diagrams
 
-These diagrams describe the flexible implementation. “Projection” means the configured output mapping. See the [CSV debugger walkthrough](csv-debug-walkthrough.md) for breakpoints, sample values and runnable commands.
+These diagrams describe the flexible implementation, including the two bounded [contract batching](contract-batching.md) candidates. The happy path now follows GROUPED scope; FILE and RECORD remain alternate mapping scopes. “Projection” means the configured output mapping. See the [CSV debugger walkthrough](csv-debug-walkthrough.md) for breakpoints, sample values and runnable commands.
 
 The simple sequence assumes a new run, valid input, LIVE with HTTP enrichment, successful preparation and an acknowledged POST. The combined collaborator labels keep that overview readable; they are not additional Java classes. The detailed sequences separate preparation from delivery so each stays within five participants. Class diagrams show selected real classes and dependencies, omitting framework infrastructure and most configuration records.
 
@@ -19,13 +19,18 @@ sequenceDiagram
     P->>L: create run (STAGING)
     P->>M: read CSV, normalize and enrich each row
     M->>L: Save enriched rows
-    P->>M: project(rows, projection)
-    M-->>P: One consents envelope with source row numbers
-    P->>L: stage body; status READY
-    P->>L: status DELIVERING; mark request SENDING
-    P->>H: post(saved body, runId:requestNumber, settings)
-    H-->>P: ACKNOWLEDGED
-    P->>L: Save acknowledgement; status FINALIZING
+    P->>M: project(rows, GROUPED projection)
+    M->>M: Gather whole contracts and enforce row/member caps
+    M-->>P: Single-contract objects or bounded contract arrays
+    P->>L: Stage each body with its source rows; status READY
+    P->>L: status DELIVERING
+    loop Each staged request
+        P->>L: Mark request SENDING
+        P->>H: post(saved body, runId:requestNumber, settings)
+        H-->>P: ACKNOWLEDGED
+        P->>L: Save request acknowledgement
+    end
+    P->>L: status FINALIZING
     P->>P: Archive input and snapshot
     P->>L: status COMPLETED
     P-->>I: runId
@@ -76,14 +81,15 @@ sequenceDiagram
                         M->>L: Save enriched payload
                     end
                 end
-                P->>M: project all rows (FILE) or each row (RECORD)
-                alt Parse, lookup, mapping, conflict or validation failure
+                P->>M: project using FILE, RECORD or GROUPED scope
+                M->>M: GROUPED gathers contracts, checks caps and partitions requests
+                alt Parse, lookup, limit, mapping, conflict or validation failure
                     M-->>P: Exception
                     P->>P: fail(PREFLIGHT); report; move processing files to errors
                     P->>L: FAILED
                     Note over P,O: Stop this run; no upsert is sent
                 else Preparation succeeds
-                    M-->>P: Bodies and source provenance
+                    M-->>P: One contract or bounded contract arrays with source provenance
                     P->>L: Stage requests; READY
                 end
             end
@@ -125,6 +131,7 @@ sequenceDiagram
     participant L as ProcessingLedger
     participant H as HttpUpsertClient
     participant S as Upsert endpoint
+    Note over P,L: Each request is one contract or a bounded array; acknowledged earlier requests are skipped
     alt Request already REJECTED
         P->>P: fail(HTTP_REJECTED); stop
     else Prior attempt exists and replay-safe is false
@@ -155,7 +162,7 @@ sequenceDiagram
                 P->>P: PAUSED; stop run
             else More attempts available
                 P->>P: Exponential delay capped at 30 seconds
-                Note over P,H: Retry same saved JSON and same idempotency key
+                Note over P,H: Retry same complete contract batch and same idempotency key
             else Budget exhausted
                 P->>P: PAUSED; stop run
             end
@@ -295,6 +302,41 @@ classDiagram
 ```
 
 Editable source: [classes-projection.mmd](diagrams/classes-projection.mmd).
+
+## Class diagram: request batching
+
+```mermaid
+classDiagram
+    direction TB
+    class FileProcessor
+    class ProjectionEngine {
+        +project(rows, projection) List
+        -groupKey(row, fields) List
+        -projectOne(rows, projection, requests)
+    }
+    class RequestBatcher {
+        +partition(rows, groupKey, memberKey, maxGroups, maxRecords, maxMembers) List
+    }
+    class Projection {
+        +scope() Scope
+        +batching() Batching
+    }
+    class Batching {
+        +groupBy() List
+        +maxGroupsPerRequest() int
+        +maxRecordsPerGroup() int
+        +memberKey() String
+        +maxMembersPerGroup() Integer
+    }
+    FileProcessor --> ProjectionEngine : bounded enriched file
+    ProjectionEngine ..> RequestBatcher : pack complete groups
+    ProjectionEngine ..> Projection : read configuration
+    Projection --> Batching : optional for GROUPED scope
+```
+
+Editable source: [classes-batching.mmd](diagrams/classes-batching.mmd).
+
+`RequestBatcher` gathers nonadjacent groups and enforces indivisible group/member limits. It knows no consent JSON schema. `ProjectionEngine` renders each partition into the selected object/array template. The prepared bodies are staged independently and retried with their own keys. File preparation still completes before the first delivery.
 
 ## How to read the alternate paths
 

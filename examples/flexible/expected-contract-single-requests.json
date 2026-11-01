@@ -1,0 +1,295 @@
+[
+  {
+    "contractId": "123456789",
+    "consents": [
+      {
+        "consentGuid": null,
+        "consentTarget": "PCDS",
+        "consentStatus": "GRANT",
+        "consentOwner": {
+          "contract": "123456789",
+          "pin": "001",
+          "contractMemberGuid": "MEMBER-GUID-001"
+        },
+        "effectiveDate": "2026-09-15",
+        "effectiveEndDate": null,
+        "coverage": [],
+        "transactionDetails": {
+          "sourceSystem": "MDB",
+          "sourceDateTime": "2026-10-28T09:00:00.000000",
+          "sourceTransactionIdentifier": "my.user.name"
+        },
+        "consentManager": {
+          "contract": "123456789",
+          "pin": "001",
+          "contractMemberGuid": "MEMBER-GUID-001"
+        }
+      },
+      {
+        "consentGuid": null,
+        "consentTarget": "PCDS",
+        "consentStatus": "GRANT",
+        "consentOwner": {
+          "contract": "123456789",
+          "pin": "002",
+          "contractMemberGuid": "MEMBER-GUID-002"
+        },
+        "effectiveDate": "2026-09-15",
+        "effectiveEndDate": null,
+        "coverage": [],
+        "transactionDetails": {
+          "sourceSystem": "XYZ",
+          "sourceDateTime": "2026-10-28T09:00:00.000000",
+          "sourceTransactionIdentifier": "my.user.name"
+        },
+        "consentManager": {
+          "contract": "123456789",
+          "pin": "002",
+          "contractMemberGuid": "MEMBER-GUID-002"
+        }
+      },
+      {
+        "consentGuid": null,
+        "consentTarget": "P2PDS",
+        "consentStatus": "GRANT",
+        "consentOwner": {
+          "contract": "123456789",
+          "pin": "002",
+          "contractMemberGuid": "MEMBER-GUID-002"
+        },
+        "effectiveDate": "2026-09-15",
+        "effectiveEndDate": null,
+        "coverage": [
+          {
+            "payerId": "PAYER-100",
+            "otherPayerMemberId": "POL-456789",
+            "groupNumber": "GRP-445566",
+            "policyHolderFirstName": "John",
+            "policyHolderMiddleName": null,
+            "policyHolderLastName": "Smith",
+            "policyHolderGender": "M",
+            "policyHolderDateOfBirth": "1980-01-01",
+            "relationshipToPolicyHolder": "SELF"
+          },
+          {
+            "payerId": "PAYER-200",
+            "otherPayerMemberId": "ABC-998877",
+            "groupNumber": "GRP-112233",
+            "policyHolderFirstName": "John",
+            "policyHolderMiddleName": null,
+            "policyHolderLastName": "Smith",
+            "policyHolderGender": "M",
+            "policyHolderDateOfBirth": "1980-01-01",
+            "relationshipToPolicyHolder": "SELF"
+          }
+        ],
+        "transactionDetails": {
+          "sourceSystem": "MDB",
+          "sourceDateTime": "2026-10-28T09:00:00.000000",
+          "sourceTransactionIdentifier": "my.user.name"
+        },
+        "consentManager": {
+          "contract": "123456789",
+          "pin": "002",
+          "contractMemberGuid": "MEMBER-GUID-002"
+        }
+      },
+      {
+        "consentGuid": null,
+        "consentTarget": "P2PDS",
+        "consentStatus": "RVOKE",
+        "consentOwner": {
+          "contract": "123456789",
+          "pin": "002",
+          "contractMemberGuid": "MEMBER-GUID-002"
+        },
+        "effectiveDate": "2026-09-15",
+        "effectiveEndDate": null,
+        "coverage": [
+          {
+            "payerId": "PAYER-300",
+            "otherPayerMemberId": "POL-300",
+            "groupNumber": "GRP-300",
+            "policyHolderFirstName": "John",
+            "policyHolderMiddleName": null,
+            "policyHolderLastName": "Smith",
+            "policyHolderGender": "M",
+            "policyHolderDateOfBirth": "1980-01-01",
+            "relationshipToPolicyHolder": "SELF"
+          }
+        ],
+        "transactionDetails": {
+          "sourceSystem": "MDB",
+          "sourceDateTime": "2026-10-28T09:00:00.000000",
+          "sourceTransactionIdentifier": "my.user.name"
+        },
+        "consentManager": {
+          "contract": "123456789",
+          "pin": "002",
+          "contractMemberGuid": "MEMBER-GUID-002"
+        }
+      }
+    ]
+  },
+  {
+    "contractId": "222222222",
+    "consents": [
+      {
+        "consentGuid": null,
+        "consentTarget": "PCDS",
+        "consentStatus": "GRANT",
+        "consentOwner": {
+          "contract": "222222222",
+          "pin": "001",
+          "contractMemberGuid": "MEMBER-GUID-003"
+        },
+        "effectiveDate": "2026-09-15",
+        "effectiveEndDate": null,
+        "coverage": [],
+        "transactionDetails": {
+          "sourceSystem": "MDB",
+          "sourceDateTime": "2026-10-28T09:00:00.000000",
+          "sourceTransactionIdentifier": "my.user.name"
+        },
+        "consentManager": {
+          "contract": "222222222",
+          "pin": "001",
+          "contractMemberGuid": "MEMBER-GUID-003"
+        }
+      },
+      {
+        "consentGuid": null,
+        "consentTarget": "P2PDS",
+        "consentStatus": "GRANT",
+        "consentOwner": {
+          "contract": "222222222",
+          "pin": "002",
+          "contractMemberGuid": "MEMBER-GUID-004"
+        },
+        "effectiveDate": "2026-09-15",
+        "effectiveEndDate": null,
+        "coverage": [
+          {
+            "payerId": "PAYER-400",
+            "otherPayerMemberId": "POL-400",
+            "groupNumber": "GRP-DEMO",
+            "policyHolderFirstName": "Taylor",
+            "policyHolderMiddleName": null,
+            "policyHolderLastName": "Reed",
+            "policyHolderGender": "M",
+            "policyHolderDateOfBirth": "1980-01-01",
+            "relationshipToPolicyHolder": "SELF"
+          }
+        ],
+        "transactionDetails": {
+          "sourceSystem": "MDB",
+          "sourceDateTime": "2026-10-28T09:00:00.000000",
+          "sourceTransactionIdentifier": "my.user.name"
+        },
+        "consentManager": {
+          "contract": "222222222",
+          "pin": "002",
+          "contractMemberGuid": "MEMBER-GUID-004"
+        }
+      },
+      {
+        "consentGuid": null,
+        "consentTarget": "P2PDS",
+        "consentStatus": "GRANT",
+        "consentOwner": {
+          "contract": "222222222",
+          "pin": "001",
+          "contractMemberGuid": "MEMBER-GUID-003"
+        },
+        "effectiveDate": "2026-09-15",
+        "effectiveEndDate": null,
+        "coverage": [
+          {
+            "payerId": "PAYER-600",
+            "otherPayerMemberId": "POL-600",
+            "groupNumber": "GRP-DEMO",
+            "policyHolderFirstName": "Morgan",
+            "policyHolderMiddleName": null,
+            "policyHolderLastName": "Chen",
+            "policyHolderGender": "M",
+            "policyHolderDateOfBirth": "1980-01-01",
+            "relationshipToPolicyHolder": "SELF"
+          }
+        ],
+        "transactionDetails": {
+          "sourceSystem": "MDB",
+          "sourceDateTime": "2026-10-28T09:00:00.000000",
+          "sourceTransactionIdentifier": "my.user.name"
+        },
+        "consentManager": {
+          "contract": "222222222",
+          "pin": "001",
+          "contractMemberGuid": "MEMBER-GUID-003"
+        }
+      }
+    ]
+  },
+  {
+    "contractId": "333333333",
+    "consents": [
+      {
+        "consentGuid": null,
+        "consentTarget": "PCDS",
+        "consentStatus": "GRANT",
+        "consentOwner": {
+          "contract": "333333333",
+          "pin": "001",
+          "contractMemberGuid": "MEMBER-GUID-005"
+        },
+        "effectiveDate": "2026-09-15",
+        "effectiveEndDate": null,
+        "coverage": [],
+        "transactionDetails": {
+          "sourceSystem": "MDB",
+          "sourceDateTime": "2026-10-28T09:00:00.000000",
+          "sourceTransactionIdentifier": "my.user.name"
+        },
+        "consentManager": {
+          "contract": "333333333",
+          "pin": "001",
+          "contractMemberGuid": "MEMBER-GUID-005"
+        }
+      },
+      {
+        "consentGuid": null,
+        "consentTarget": "P2PDS",
+        "consentStatus": "GRANT",
+        "consentOwner": {
+          "contract": "333333333",
+          "pin": "001",
+          "contractMemberGuid": "MEMBER-GUID-005"
+        },
+        "effectiveDate": "2026-09-15",
+        "effectiveEndDate": null,
+        "coverage": [
+          {
+            "payerId": "PAYER-500",
+            "otherPayerMemberId": "POL-500",
+            "groupNumber": "GRP-DEMO",
+            "policyHolderFirstName": "Jamie",
+            "policyHolderMiddleName": null,
+            "policyHolderLastName": "Lee",
+            "policyHolderGender": "M",
+            "policyHolderDateOfBirth": "1980-01-01",
+            "relationshipToPolicyHolder": "SELF"
+          }
+        ],
+        "transactionDetails": {
+          "sourceSystem": "MDB",
+          "sourceDateTime": "2026-10-28T09:00:00.000000",
+          "sourceTransactionIdentifier": "my.user.name"
+        },
+        "consentManager": {
+          "contract": "333333333",
+          "pin": "001",
+          "contractMemberGuid": "MEMBER-GUID-005"
+        }
+      }
+    ]
+  }
+]

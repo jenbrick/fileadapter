@@ -1,5 +1,7 @@
 # FileAdapter: code walkthrough and change guide
 
+For bounded complete-contract requests, start with [contract batching and both JSON shapes](contract-batching.md). `GROUPED` scope now supports one contract per request or a capped array of contracts; the FILE examples below remain valid comparisons.
+
 For a debugger-style execution trace, see [CSV receipt to consent POST](csv-debug-walkthrough.md), with [Mermaid sequence and class diagrams](runtime-diagrams.md).
 
 This is a Spring Boot / Gradle proof of concept for the adapter pattern and configurable file-to-JSON mapping. Consent is its worked example. File syntax, source names, enrichment, outgoing JSON structure and delivery are separate concerns.
@@ -200,7 +202,7 @@ The three-row fixture produces two provider entries and one payer entry containi
 
 Every mapped scalar within a group must agree after transformation. Conflicting statuses, dates or duplicated coverage details fail preparation; there is no implicit first-row winner. Collections preserve first-seen group order.
 
-`scope: RECORD` instead builds one request per row and cannot combine coverage across rows. Scope controls request boundaries; root object versus array controls JSON shape. They are independent.
+`scope: RECORD` instead builds one request per row and cannot combine coverage across rows. `scope: GROUPED` first gathers nonadjacent rows by configured contract key and packs up to the configured contract count per request, validating row and distinct-member limits. `RequestBatcher.partition()` owns this boundary. Scope controls request boundaries; root object versus array controls JSON shape. They are independent.
 
 ## 8. Stage, preview or deliver
 
@@ -280,7 +282,7 @@ java -jar build/libs/fileadapter-0.1.0.jar \
 
 Compare with [expected-contract-envelope.json](../examples/flexible/expected-contract-envelope.json). JSON object property order has no semantic significance; consumers must address `contractId` by name.
 
-With FILE scope, all rows must agree on that one contract ID. Multiple contracts require a grouped collection or separate requests. The POC has FILE and RECORD scopes; it does not yet offer one-request-per-contract scope.
+With FILE scope, all rows must agree on that one contract ID. Multiple contracts require a grouped collection or separate requests. Use `GROUPED` scope with `batching.max-groups-per-request: 1` for one complete contract per request, or a higher limit plus a contract-grouped root array for multiple contracts per request. See the two new runnable profiles in [contract batching](contract-batching.md).
 
 ## 12. Add, remove, rename or move attributes
 

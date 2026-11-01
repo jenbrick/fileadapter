@@ -1,0 +1,21 @@
+name: Verify adapter POC
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Tests and executable JAR
+        run: ./gradlew --no-daemon test bootJar
+      - name: Compare every packaged example with expected JSON
+        run: python3 scripts/verify-examples.py

@@ -22,4 +22,10 @@ for profile in flexible-root-array-v1 flexible-contract-envelope-v1 \
     --ingestion.mode=PREVIEW --ingestion.profile-id="$profile" \
     --ingestion.file=examples/flexible/flexible-consents.csv
 done
+for profile in flexible-contract-single-v1 flexible-contract-array-v1; do
+  echo "Running bounded contract variant $profile"
+  "$java_cmd" -jar "$jar_path" --spring.profiles.active=flexible-demo \
+    --ingestion.mode=PREVIEW --ingestion.profile-id="$profile" \
+    --ingestion.file=examples/flexible/contract-batches.csv
+done
 echo "Open var-flexible-demo/preview/<run-id>/<input-file>.preview.json"

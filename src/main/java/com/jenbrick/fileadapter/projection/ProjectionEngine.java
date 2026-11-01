@@ -41,6 +41,22 @@ public class ProjectionEngine {
         if(projection.version()==null || projection.version().isBlank() || projection.scope()==null
                 || projection.maxRecords()<1 || projection.maxRecords()>10_000)
             throw new IllegalArgumentException("Projection requires version, scope and max-records from 1 to 10000");
+        if(projection.scope()==Projection.Scope.GROUPED) {
+            var batch=projection.batching();
+            if(batch==null || batch.groupBy()==null || batch.groupBy().isEmpty()
+                    || batch.maxGroupsPerRequest()<1 || batch.maxGroupsPerRequest()>10_000
+                    || batch.maxRecordsPerGroup()<1 || batch.maxRecordsPerGroup()>projection.maxRecords())
+                throw new IllegalArgumentException("GROUPED requires group-by, max-groups-per-request and max-records-per-group within file limits");
+            batch.groupBy().forEach(JsonPaths::check);
+            checkWhere(batch.where());
+            if((batch.memberKey()==null)!=(batch.maxMembersPerGroup()==null))
+                throw new IllegalArgumentException("member-key and max-members-per-group must be supplied together");
+            if(batch.memberKey()!=null) {
+                JsonPaths.check(batch.memberKey());
+                if(batch.maxMembersPerGroup()<1 || batch.maxMembersPerGroup()>batch.maxRecordsPerGroup())
+                    throw new IllegalArgumentException("Invalid max-members-per-group");
+            }
+        } else if(projection.batching()!=null) throw new IllegalArgumentException("batching requires GROUPED scope");
         if(projection.enrichers()!=null) {
             var names=new LinkedHashSet<String>();
             for(String name:projection.enrichers()) if(!enrichers.containsKey(name) || !names.add(name))
@@ -76,8 +92,28 @@ public class ProjectionEngine {
         if(rows.size()>projection.maxRecords()) throw new RecordFailure("Projection record limit exceeded");
         var requests=new ArrayList<Request>();
         if(projection.scope()==Projection.Scope.FILE) projectOne(rows,projection,requests);
-        else for(var row:rows) projectOne(List.of(row),projection,requests);
+        else if(projection.scope()==Projection.Scope.RECORD) for(var row:rows) projectOne(List.of(row),projection,requests);
+        else {
+            var batch=projection.batching();
+            var selected=rows.stream().filter(row->matches(row.payload(),batch.where())).toList();
+            java.util.function.Function<SourceRecord,List<JsonNode>> memberKey=batch.memberKey()==null
+                    ? null : row->groupKey(row,List.of(batch.memberKey()));
+            var partitions=RequestBatcher.partition(selected,row->groupKey(row,batch.groupBy()),memberKey,
+                    batch.maxGroupsPerRequest(),batch.maxRecordsPerGroup(),batch.maxMembersPerGroup());
+            for(var partition:partitions) projectOne(partition,projection,requests);
+        }
         return requests;
+    }
+
+    private List<JsonNode> groupKey(SourceRecord row, List<String> fields) {
+        var key=new ArrayList<JsonNode>();
+        for(String field:fields) {
+            var value=JsonPaths.get(row.payload(),field);
+            if(!present(value) || value.isContainerNode())
+                throw new RecordFailure("Missing or invalid batching key " + field + " at source record " + row.number());
+            key.add(value);
+        }
+        return List.copyOf(key);
     }
 
     private void projectOne(List<SourceRecord> rows, Projection projection, List<Request> requests) {
@@ -226,18 +262,20 @@ public class ProjectionEngine {
         });
         if(node.array()!=null) for(var collection:node.array()) {
             if(collection.groupBy()!=null) collection.groupBy().forEach(JsonPaths::check);
-            var where=collection.where();
-            if(where!=null) {
-                if(where.anyPresent()!=null) {
-                    if(where.anyPresent().isEmpty() || where.source()!=null || where.present()!=null || where.equalsValue()!=null)
-                        throw new IllegalArgumentException("any-present cannot be combined with other conditions");
-                    where.anyPresent().forEach(JsonPaths::check);
-                } else {
-                    JsonPaths.check(where.source());
-                    if((where.present()!=null)==(where.equalsValue()!=null)) throw new IllegalArgumentException("Choose present or equals-value");
-                }
-            }
+            checkWhere(collection.where());
             checkNode(collection.item(),depth+1,count,path+"[]");
+        }
+    }
+    private void checkWhere(Projection.Where where) {
+        if(where!=null) {
+            if(where.anyPresent()!=null) {
+                if(where.anyPresent().isEmpty() || where.source()!=null || where.present()!=null || where.equalsValue()!=null)
+                    throw new IllegalArgumentException("any-present cannot be combined with other conditions");
+                where.anyPresent().forEach(JsonPaths::check);
+            } else {
+                JsonPaths.check(where.source());
+                if((where.present()!=null)==(where.equalsValue()!=null)) throw new IllegalArgumentException("Choose present or equals-value");
+            }
         }
     }
     private void checkRules(List<Profile.ContractField> rules) {

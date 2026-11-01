@@ -7,6 +7,7 @@ The current pipeline always uses configurable projections. Start with the [chang
 | New delimiter/header order/field position | Edit `Profile.Layout` configuration |
 | Different source names/nesting | Edit `layout.fields` selectors and aliases |
 | New output property, object, collection or root shape | Edit `projection.root` |
+| One/many complete contracts per request | Use `scope: GROUPED` and `projection.batching`; see [contract batching](contract-batching.md) |
 | Different filtering/group keys | Edit collection `where` / `group-by` |
 | New physical syntax | Implement `FileFormatAdapter`, add format/layout validation |
 | New read-only external lookup or multi-field computation | Implement named `RecordEnricher` |
@@ -31,6 +32,6 @@ Transformations run before blank handling. Optional blank dates/numbers need an 
 
 ## Collection boundaries
 
-The engine supports nested objects/arrays, filtering and grouping within the selected file/record context. It does not execute scripts, arbitrary expressions or joins across unrelated files. FILE/RECORD are the implemented request scopes. Contract-grouped request boundaries, large-volume streaming and chunking would be separate features.
+The engine supports nested objects/arrays, filtering and grouping within the selected file/record context. It does not execute scripts, arbitrary expressions or joins across unrelated files. FILE, RECORD and GROUPED are implemented request scopes. GROUPED uses `RequestBatcher` to gather complete groups, enforce row/member caps and pack a bounded number per request. A contract can include multiple member consents, separate payer-consent groups and nested coverage collections. Large-volume streaming and JSON byte-size limits remain separate features.
 
 Parser behavior, source normalization, enrichment and projection should each have focused tests. Include input and expected output fixtures when adding a feed or output shape, and run the packaged example verifier when changing their configuration.

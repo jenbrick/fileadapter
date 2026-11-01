@@ -34,7 +34,7 @@ The fixture includes four extra audit columns after the original 30 fields: `PRO
 | Combine multiple rows per member | Collection `group-by` |
 | Collect multiple coverages under one consent | Nested `array` collection |
 | Include a collection only for populated preference fields | Collection `where` |
-| One request per row versus an aggregate request | `scope: RECORD` or `scope: FILE` |
+| Request boundaries | `scope: RECORD`, `scope: FILE`, or bounded `scope: GROUPED` with `batching` |
 
 New syntax requires a file adapter. New external lookups or genuinely new computations require a small `RecordEnricher` or `ValueTransform` implementation. Template changes themselves do not require a consent-specific Java builder.
 
@@ -205,7 +205,7 @@ The fixture mode is explicitly a demo. LIVE refuses fixture member lookup. Set `
 ## Scope, persistence and limits
 
 - `FILE` groups the selected file into one request. `RECORD` projects each row independently and cannot combine coverages across rows.
-- The example chooses FILE to demonstrate a multi-member envelope. Batch size and transaction guarantees remain endpoint decisions.
+- The original example chooses FILE to demonstrate a multi-member envelope. The new contract profiles use GROUPED to bound requests, with one contract object or an array of contract objects. Transaction guarantees remain endpoint decisions.
 - `skip-when-empty` is a dotted result path, or `$` for the root. If that value is missing/null or an empty container, no request is staged. Set it to `consents` for the supplied envelope.
 - Enriched rows are persisted in H2 before projection. Interrupted STAGING reuses saved lookup results; a crash before saving may repeat a read-only lookup.
 - The complete mapped request is staged before delivery. READY/resume sends the saved JSON without new lookup or mapping. Full-file validation still precedes any upsert.
@@ -225,3 +225,30 @@ Version meaningful rule changes. Update the corresponding input/expected-output 
 ## Validation
 
 The retained tests exercise parsers, scalar conversions, required/type/nullability checks, exact sample output, alternate JSON shapes, grouping conflicts, enrichment snapshots and HTTP delivery/retry. The packaged verifier checks each supported input layout and output variant against expected JSON. See [verification notes](verification.md) for the checks performed for this cleanup.
+
+## GROUPED scope: bounded contract request bodies
+
+See [contract batching](contract-batching.md) for complete commands, expected JSON and the distinction between consent identities and payer coverages. Both new demo profiles are in the same configuration file as the original examples.
+
+```yaml
+scope: GROUPED
+max-records: 1000
+batching:
+  group-by: [resolved.owner.contract]
+  max-groups-per-request: 2
+  max-records-per-group: 100
+  member-key: resolved.owner.contractMemberGuid
+  max-members-per-group: 25
+  where:
+    any-present: [PROVIDER_CLINICAL_CONSENT_PREFERENCE, PAYER_CONSENT_PREFERENCE]
+```
+
+`batching` is valid only with GROUPED. It requires a nonempty list of scalar grouping paths, a group/request cap from 1 to 10000 and a row/group cap from 1 through `max-records`. `member-key` and `max-members-per-group` are optional but must appear together; the member cap must be between 1 and the row/group cap. `where` uses the same condition syntax as collection filters. Filtered no-change rows still count against the file record cap.
+
+Rows are gathered by first-seen group key, including nonadjacent rows. A complete group is indivisible. The batcher rejects oversized groups before rendering, then emits at most the configured number of groups per request and flushes the last partial batch. Rendering, scalar agreement checks, `skip-when-empty`, provenance and node validation apply independently to each partition. A rendering error in a later partition still blocks delivery of all partitions during file preparation.
+
+The single-contract root reads `resolved.owner.contract` as `contractId` and renders consent entries for that contract. The array root uses a collection grouped by that same contract path and places the single-contract object inside it. The root’s nested grouping remains necessary when more than one contract is selected; scalar contract IDs cannot agree across distinct contracts.
+
+The new payer collection additionally groups by `PAYER_CONSENT_KEY` within each member. The enricher forwards this optional source field to lookup; an HTTP facade must resolve the corresponding existing payer-consent GUID. The field is required by the new payer grouping, not by the legacy one-payer-consent-per-member profiles. It is not emitted automatically.
+
+`CONTRACTS_PER_REQUEST` (array demo only), `CONTRACT_MAX_ROWS` and `CONTRACT_MAX_MEMBERS` are environment-backed profile settings. These limits bound request composition, not JSON byte size. File preparation remains bounded and in memory; arbitrary-file streaming is not implemented.

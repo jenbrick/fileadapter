@@ -15,7 +15,10 @@ flowchart TD
     Adapter --> Normalize["Normalize physical fields and aliases"]
     Normalize --> Enrich["Named read-only RecordEnrichers"]
     Enrich --> Frozen["Persist enriched records in H2"]
-    Frozen --> Build["Configured object trees and filtered grouped collections"]
+    Frozen --> Batch["GROUPED: gather complete contracts; enforce row and member caps"]
+    Batch --> Pack["One contract or capped contracts per request"]
+    Pack --> Build["Render each request: member consents and payer coverage groups"]
+    Frozen -->|FILE or RECORD scope| Build
     Build --> Validate["Check group consistency, required fields and limits"]
     Validate --> Stage["Stage complete request bodies and source provenance"]
     Stage --> Ready["Entire file ready before delivery"]
@@ -50,3 +53,9 @@ File syntax stays inside adapters. Optional named enrichers add source-side valu
 Enriched rows and final request bodies are persisted separately. Preflight validates the entire bounded file before any upsert. Recovery reuses saved configuration, enrichment and payloads, with aggregate source provenance. Projection snapshots use engine version 4. The older object-path mapper and specialized consent planner have been removed; engine versions 1–3 require the previous release.
 
 The implementation is a bounded single-worker POC with local H2. FILE scope demonstrates aggregation across rows, not arbitrary-volume streaming. The service still owns batch semantics, acknowledgement, idempotency and business-level conflict rules. A JSON envelope is not a distributed transaction.
+
+## Complete-contract request boundaries
+
+[Contract batching](contract-batching.md) adds generic `GROUPED` scope: `RequestBatcher` gathers complete groups from interleaved rows, enforces per-contract row/distinct-member limits and packs one or up to N contracts into each request. Single mode emits `{contractId, consents}`; array mode emits a root array of those objects. Members are identified in each consent owner, and a member can have separate keyed payer consents with multiple coverages each. These wrappers are POC alternatives pending the endpoint contract.
+
+Request partitioning happens before per-partition tree rendering. A later preparation error blocks all delivery. Source provenance is saved for each resulting request; acknowledged batches are skipped on resume while a failed batch retains its body and key. The file record/memory bound remains independent of the new outgoing-request bounds. Whole-file and per-record mappings remain available for comparison.
