@@ -109,7 +109,20 @@ public class SourceResultWriter {
             while(fields.hasNext()){var f=fields.next();if(f.getKey().startsWith("@")) {
                 var attr=name(f.getKey().substring(1),options);
                 if(attr.getNamespaceURI().isEmpty())w.writeAttribute(attr.getLocalPart(),f.getValue().asText());
-                else w.writeAttribute(attr.getPrefix(),attr.getNamespaceURI(),attr.getLocalPart(),f.getValue().asText());
+                else {
+                    // A default namespace never qualifies attributes. Give Clark-name attributes
+                    // an explicit prefix instead of letting the repairing writer drop their URI.
+                    String prefix=attr.getPrefix();
+                    if(prefix.isEmpty()) {
+                        prefix="attr"+Integer.toUnsignedString(attr.getNamespaceURI().hashCode(),16);
+                        String bound=w.getNamespaceContext().getNamespaceURI(prefix);
+                        while(bound!=null && !bound.isEmpty() && !bound.equals(attr.getNamespaceURI())) {
+                            prefix+="x";bound=w.getNamespaceContext().getNamespaceURI(prefix);
+                        }
+                        w.writeNamespace(prefix,attr.getNamespaceURI());
+                    }
+                    w.writeAttribute(prefix,attr.getNamespaceURI(),attr.getLocalPart(),f.getValue().asText());
+                }
             }}
             fields=value.fields();while(fields.hasNext()){var f=fields.next();if(f.getKey().equals("#text"))w.writeCharacters(f.getValue().asText());else if(!f.getKey().startsWith("@"))element(w,name(f.getKey(),options),f.getValue(),options);}
         } else w.writeCharacters(value.asText());
